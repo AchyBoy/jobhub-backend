@@ -1,0 +1,17 @@
+[
+  {
+    "jobId": "test",
+    "phase": "Rough",
+    "text": "Install rough-in boxes in kitchen"
+  },
+  {
+    "jobId": "test",
+    "phase": "Rough",
+    "text": "Verify homeruns to panel"
+  },
+  {
+    "jobId": "test",
+    "phase": "Final",
+    "text": "Install devices and plates"
+  }
+]
