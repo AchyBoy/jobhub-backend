@@ -1,0 +1,19 @@
+# OS
+.DS_Store
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Accidental files
+duplicate package-lock copy.json
+
+# Frontend (not part of backend repo)
+jobhub-web/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
