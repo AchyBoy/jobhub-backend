@@ -12,18 +12,16 @@ router.post("/job/:jobId/notes", (req, res) => {
   const job = getJob(jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  const rawNotes = req.body?.notes;
+const rawNotes = req.body?.notes;
 if (!Array.isArray(rawNotes)) {
   return res.status(400).json({ error: "Missing notes array" });
 }
 
-// 🔁 Normalize app notes → backend notes
+// 🔁 Normalize app notes → backend notes (CANONICAL SHAPE)
 const notes = rawNotes.map((n: any) => ({
-  id: n.id,
-  jobId,                     // 👈 CRITICAL
-  phase: n.phase,
-  title: n.text,             // 👈 app "text" → backend "title"
-  status: n.status === "complete" ? "complete" : "pending",
+  jobId,
+  phase: String(n.phase),
+  text: String(n.text),
 }));
 
 upsertNotesForJob(jobId, notes);
