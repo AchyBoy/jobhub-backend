@@ -17,11 +17,14 @@ if (!Array.isArray(rawNotes)) {
   return res.status(400).json({ error: "Missing notes array" });
 }
 
-// 🔁 Normalize app notes → backend notes (CANONICAL SHAPE)
-const notes = rawNotes.map((n: any) => ({
+// 🔁 Normalize app notes → backend Note schema
+const notes = rawNotes.map((n: any, i: number) => ({
+  id: n.id ?? `${jobId}-${i}`,          // required
   jobId,
-  phase: String(n.phase),
-  text: String(n.text),
+  phase: n.phase,
+  text: n.text,                         // matches backend type
+  status: n.status ?? "incomplete",     // default if missing
+  createdAt: n.createdAt ?? new Date().toISOString(),
 }));
 
 upsertNotesForJob(jobId, notes);
