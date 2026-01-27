@@ -45,20 +45,24 @@ router.get("/job/:jobId", (req, res) => {
   });
 });
 
-// POST /api/crew/job/:jobId/notes/:noteId/complete
-// Marks a note as "crew completed" (does NOT set status=complete; office can still finalize)
-router.post("/job/:jobId/notes/:noteId/complete", (req, res) => {
+// POST /api/crew/job/:jobId/notes/complete
+// Body: { phase: string; text: string }
+router.post("/job/:jobId/notes/complete", (req, res) => {
   const jobId = String(req.params.jobId || "").trim();
-  const noteId = String(req.params.noteId || "").trim();
+  const { phase, text } = req.body || {};
 
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
-  if (!noteId) return res.status(400).json({ error: "Missing noteId" });
+  if (!phase || !text)
+    return res.status(400).json({ error: "Missing phase or text" });
 
   const job = getJob(jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
 
   const notes = listNotesForJob(jobId);
-  const idx = notes.findIndex(n => n.id === noteId);
+
+  const idx = notes.findIndex(
+    n => n.phase === phase && n.text === text
+  );
 
   if (idx === -1) {
     return res.status(404).json({ error: "Note not found" });
@@ -66,18 +70,25 @@ router.post("/job/:jobId/notes/:noteId/complete", (req, res) => {
 
   const now = new Date().toISOString();
 
-  const updated = notes.map(n => {
-    if (n.id !== noteId) return n;
-    return {
-      ...n,
-      markedCompleteBy: "crew" as const,
-      crewCompletedAt: now,
-    };
-  });
+  const updated = notes.map((n, i) =>
+    i !== idx
+      ? n
+      : {
+          ...n,
+          markedCompleteBy: "crew" as const,
+          crewCompletedAt: now,
+        }
+  );
 
   upsertNotesForJob(jobId, updated);
 
-  res.json({ success: true, jobId, noteId, crewCompletedAt: now });
+  res.json({
+    success: true,
+    jobId,
+    phase,
+    text,
+    crewCompletedAt: now,
+  });
 });
 
 export default router;
