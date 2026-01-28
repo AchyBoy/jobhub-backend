@@ -15,7 +15,17 @@ router.get("/job/:jobId", (req, res) => {
   const job = getJob(jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  const notes = listNotesForJob(jobId);
+const rawNotes = listNotesForJob(jobId);
+
+// NOTE (future us):
+// Crew endpoint always returns noteA/noteB for UI.
+// Legacy notes only have `text`, so we map it into noteA.
+const notes = rawNotes.map((n: any) => ({
+  ...n,
+  noteA: n.noteA ?? n.text ?? "",
+  noteB: n.noteB ?? "",
+  text: n.text ?? n.noteA ?? "",
+}));
 
   // Build allowed phases from active + view list
   const viewPhases = viewParam
