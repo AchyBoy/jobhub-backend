@@ -20,46 +20,6 @@ const API_BASE =
   process.env.EXPO_PUBLIC_API_BASE ||
   'https://adorable-passion-production-5ab7.up.railway.app';
 
-async function syncNotesToBackend(jobId: string, notes: JobNote[]) {
-  if (!backendHydrated) {
-  // NOTE (future us):
-  // Never write to backend before initial load completes.
-  return;
-}
-  try {
-// NOTE (future us): backend is source of truth; always sync full note state.
-// This prevents losing completion flags/timestamps when we add features like
-// phase reassignment, A/B answers, editing, etc.
-const payload = notes.map(n => ({
-  id: n.id,
-  jobId,
-  phase: n.phase,
-
-  // NOTE (future us):
-  // Backend stores both noteA and noteB.
-  // `text` is kept temporarily so website can migrate safely.
-  noteA: n.noteA,
-  noteB: n.noteB,
-  text: n.text ?? n.noteA,
-
-  status: n.status,
-  scheduledFor: n.scheduledFor,
-  markedCompleteBy: n.markedCompleteBy,
-  crewCompletedAt: n.crewCompletedAt,
-  officeCompletedAt: n.officeCompletedAt,
-  createdAt: n.createdAt,
-}));
-
-    await fetch(`${API_BASE}/api/job/${jobId}/notes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes: payload }),
-    });
-  } catch (err) {
-    console.warn('Failed to sync notes to backend', err);
-  }
-}
-
 async function fetchNotesFromBackend(jobId: string): Promise<JobNote[] | null> {
   try {
     const res = await fetch(`${API_BASE}/api/job/${jobId}/notes`);
@@ -104,11 +64,55 @@ type JobNote = {
 
 export default function JobNotes() {
   const { id } = useLocalSearchParams();
+
   const [notes, setNotes] = useState<JobNote[]>([]);
+
   // NOTE (future us):
-// Prevents accidental data loss on first load.
-// We NEVER sync until backend notes have been loaded at least once.
-const [backendHydrated, setBackendHydrated] = useState(false);
+  // Prevents accidental data loss on first load.
+  // We NEVER sync until backend notes have been loaded at least once.
+  const [backendHydrated, setBackendHydrated] = useState(false);
+
+  async function syncNotesToBackend(jobId: string, notes: JobNote[]) {
+    if (!backendHydrated) {
+      // NOTE (future us):
+      // Never write to backend before initial load completes.
+      return;
+    }
+
+  try {
+// NOTE (future us): backend is source of truth; always sync full note state.
+// This prevents losing completion flags/timestamps when we add features like
+// phase reassignment, A/B answers, editing, etc.
+const payload = notes.map(n => ({
+  id: n.id,
+  jobId,
+  phase: n.phase,
+
+  // NOTE (future us):
+  // Backend stores both noteA and noteB.
+  // `text` is kept temporarily so website can migrate safely.
+  noteA: n.noteA,
+  noteB: n.noteB,
+  text: n.text ?? n.noteA,
+
+  status: n.status,
+  scheduledFor: n.scheduledFor,
+  markedCompleteBy: n.markedCompleteBy,
+  crewCompletedAt: n.crewCompletedAt,
+  officeCompletedAt: n.officeCompletedAt,
+  createdAt: n.createdAt,
+}));
+
+    await fetch(`${API_BASE}/api/job/${jobId}/notes`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: payload }),
+    });
+  } catch (err) {
+    console.warn('Failed to sync notes to backend', err);
+  }
+}
+
   // NOTE (future us):
 // Global edit mode prevents accidental edits.
 // When enabled, ALL notes become editable.
