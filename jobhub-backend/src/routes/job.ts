@@ -12,18 +12,34 @@ router.post("/job/:jobId/notes", (req, res) => {
   const job = getJob(jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
 
-  const rawNotes = req.body?.notes;
+const rawNotes = req.body?.notes;
 if (!Array.isArray(rawNotes)) {
   return res.status(400).json({ error: "Missing notes array" });
 }
 
-// 🔁 Normalize app notes → backend notes
-const notes = rawNotes.map((n: any) => ({
-  id: n.id,
-  jobId,                     // 👈 CRITICAL
+// 🔁 Normalize app notes → backend Note schema
+// NOTE (future us):
+// - noteA / noteB are now first-class fields
+// - `text` is legacy and kept for backward compatibility
+// - Backend stores ALL fields so app + website stay in sync
+const notes = rawNotes.map((n: any, i: number) => ({
+  id: n.id ?? `${jobId}-${i}`, // required
+  jobId,
   phase: n.phase,
-  title: n.text,             // 👈 app "text" → backend "title"
-  status: n.status === "complete" ? "complete" : "pending",
+
+  // Primary + secondary note content
+  noteA: n.noteA ?? n.text ?? "",
+  noteB: n.noteB ?? "",
+
+  // Legacy fallback (do NOT remove yet)
+  text: n.text ?? n.noteA ?? "",
+
+  status: n.status ?? "incomplete",
+  markedCompleteBy: n.markedCompleteBy,
+  crewCompletedAt: n.crewCompletedAt,
+  officeCompletedAt: n.officeCompletedAt,
+
+  createdAt: n.createdAt ?? new Date().toISOString(),
 }));
 
 upsertNotesForJob(jobId, notes);

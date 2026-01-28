@@ -37,8 +37,29 @@ export function upsertJob(job: Job) {
   writeJson(jobsPath, jobs);
 }
 
-export function upsertNotesForJob(jobId: string, next: Note[]) {
+export function upsertNotesForJob(jobId: string, incoming: Note[]) {
   const all = readJson<Note[]>(notesPath);
-  const kept = all.filter(n => n.jobId !== jobId);
-  writeJson(notesPath, [...kept, ...next]);
+
+  // Notes for this job already on disk
+  const existing = all.filter(n => n.jobId === jobId);
+  const others = all.filter(n => n.jobId !== jobId);
+
+  // Merge by note.id
+  const mergedMap = new Map<string, Note>();
+
+  for (const n of existing) {
+    mergedMap.set(n.id, n);
+  }
+
+  for (const n of incoming) {
+    mergedMap.set(n.id, {
+      ...mergedMap.get(n.id),
+      ...n,
+      jobId, // enforce
+    });
+  }
+
+  const merged = Array.from(mergedMap.values());
+
+  writeJson(notesPath, [...others, ...merged]);
 }
