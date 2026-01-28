@@ -8,10 +8,19 @@ app.set("trust proxy", 1);
 
 app.use(
   cors({
-    origin: true,
-    methods: ["GET", "POST", "OPTIONS"],
+    origin: [
+      "https://jobhub-web-production.up.railway.app",
+      "http://localhost:3000",
+      "http://localhost:19006",
+    ],
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
+
+// 🔑 REQUIRED for browser preflight
+app.options("*", cors());
 
 app.use(express.json());
 
