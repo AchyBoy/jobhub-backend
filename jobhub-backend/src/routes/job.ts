@@ -42,6 +42,22 @@ const notes = rawNotes.map((n: any, i: number) => ({
   createdAt: n.createdAt ?? new Date().toISOString(),
 }));
 
+const existing = listNotesForJob(jobId);
+
+// 🚨 SAFETY: never allow overwrite with empty notes
+if (existing.length && notes.length === 0) {
+  return res.status(409).json({
+    error: "Refusing to overwrite existing notes with empty payload",
+  });
+}
+
+// 🚨 SAFETY: never allow accidental shrinking
+if (existing.length && notes.length < existing.length) {
+  return res.status(409).json({
+    error: "Refusing to overwrite notes with smaller set",
+  });
+}
+
 upsertNotesForJob(jobId, notes);
 
   res.json({ success: true });
