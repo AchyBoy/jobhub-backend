@@ -46,23 +46,38 @@ router.get("/job/:jobId", (req, res) => {
 });
 
 // POST /api/crew/job/:jobId/notes/complete
-// Body: { phase: string; text: string }
+// Body: { noteId?: string; phase: string; text?: string }
 router.post("/job/:jobId/notes/complete", (req, res) => {
   const jobId = String(req.params.jobId || "").trim();
-  const { phase, text } = req.body || {};
+  const { noteId, phase, text } = req.body || {};
 
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
-  if (!phase || !text)
-    return res.status(400).json({ error: "Missing phase or text" });
+  if (!phase)
+    return res.status(400).json({ error: "Missing phase" });
 
+  // NOTE (future us):
+  // Crew completion MUST target a specific note.
+  // - noteId is the source of truth
+  // - text is legacy fallback for older clients
+  // Once all clients send noteId, text matching can be removed.
   const job = getJob(jobId);
   if (!job) return res.status(404).json({ error: "Job not found" });
 
   const notes = listNotesForJob(jobId);
 
-  const idx = notes.findIndex(
-    n => n.phase === phase && n.text === text
-  );
+  let idx = -1;
+
+  // Prefer ID-based lookup
+  if (noteId) {
+    idx = notes.findIndex(n => n.id === noteId);
+  }
+
+  // Legacy fallback (pre-noteA/noteB clients)
+  if (idx === -1 && text) {
+    idx = notes.findIndex(
+      n => n.phase === phase && n.text === text
+    );
+  }
 
   if (idx === -1) {
     return res.status(404).json({ error: "Note not found" });
@@ -85,8 +100,7 @@ router.post("/job/:jobId/notes/complete", (req, res) => {
   res.json({
     success: true,
     jobId,
-    phase,
-    text,
+    noteId: notes[idx].id,
     crewCompletedAt: now,
   });
 });
