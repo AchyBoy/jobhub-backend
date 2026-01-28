@@ -18,12 +18,27 @@ if (!Array.isArray(rawNotes)) {
 }
 
 // 🔁 Normalize app notes → backend Note schema
+// NOTE (future us):
+// - noteA / noteB are now first-class fields
+// - `text` is legacy and kept for backward compatibility
+// - Backend stores ALL fields so app + website stay in sync
 const notes = rawNotes.map((n: any, i: number) => ({
-  id: n.id ?? `${jobId}-${i}`,          // required
+  id: n.id ?? `${jobId}-${i}`, // required
   jobId,
   phase: n.phase,
-  text: n.text,                         // matches backend type
-  status: n.status ?? "incomplete",     // default if missing
+
+  // Primary + secondary note content
+  noteA: n.noteA ?? n.text ?? "",
+  noteB: n.noteB ?? "",
+
+  // Legacy fallback (do NOT remove yet)
+  text: n.text ?? n.noteA ?? "",
+
+  status: n.status ?? "incomplete",
+  markedCompleteBy: n.markedCompleteBy,
+  crewCompletedAt: n.crewCompletedAt,
+  officeCompletedAt: n.officeCompletedAt,
+
   createdAt: n.createdAt ?? new Date().toISOString(),
 }));
 
