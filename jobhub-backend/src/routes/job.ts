@@ -83,4 +83,27 @@ router.get("/job/:jobId/notes", (req, res) => {
   res.json({ jobId, notes });
 });
 
+// POST /api/job/:jobId/meta
+// Body: { name?: string }
+router.post("/job/:jobId/meta", (req, res) => {
+  const jobId = String(req.params.jobId || "").trim();
+  if (!jobId) return res.status(400).json({ error: "Missing jobId" });
+
+  const name =
+    typeof req.body?.name === "string"
+      ? req.body.name.trim()
+      : null;
+
+  if (!name) {
+    return res.status(400).json({ error: "Missing job name" });
+  }
+
+  upsertJob({
+    id: jobId,
+    name,
+  });
+
+  res.json({ success: true });
+});
+
 export default router;
