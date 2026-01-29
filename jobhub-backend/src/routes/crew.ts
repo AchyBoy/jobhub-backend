@@ -1,118 +1,146 @@
 import { Router } from "express";
-import { getJob, listNotesForJob, upsertNotesForJob } from "../lib/store";
+import { pool } from "../db/postgres";
 
 const router = Router();
 
-// GET /api/crew/job/:jobId?phase=Final&view=Rough,Contractor%20Rough
-router.get("/job/:jobId", (req, res) => {
+// =======================================================
+// GET /api/crew/job/:jobId?phase=Rough&view=Final,Trim
+// =======================================================
+// ⚠️ SOURCE OF TRUTH = POSTGRES
+// ⚠️ JSON STORAGE IS PERMANENTLY REMOVED
+//
+// This endpoint exists for WEB CREW LINKS.
+// It MUST remain backward-compatible with the web UI.
+// Do NOT change response shape without updating the web.
+//
+// JSON storage caused DATA LOSS on redeploy.
+// Do not reintroduce it.
+router.get("/job/:jobId", async (req, res) => {
   const jobId = String(req.params.jobId || "").trim();
   const activePhase = String(req.query.phase || "").trim();
   const viewParam = String(req.query.view || "").trim();
 
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
-  if (!activePhase) return res.status(400).json({ error: "Missing ?phase=" });
+  if (!activePhase)
+    return res.status(400).json({ error: "Missing ?phase=" });
 
-  const job = getJob(jobId);
-  if (!job) return res.status(404).json({ error: "Job not found" });
+  try {
+    // Load job
+    const jobRes = await pool.query(
+      `SELECT id, name FROM jobs WHERE id = $1`,
+      [jobId]
+    );
 
-const rawNotes = listNotesForJob(jobId);
+    if (jobRes.rowCount === 0) {
+      return res.status(404).json({ error: "Job not found" });
+    }
 
-// NOTE (future us):
-// Crew endpoint always returns noteA/noteB for UI.
-// Legacy notes only have `text`, so we map it into noteA.
-const notes = rawNotes.map((n: any) => ({
-  ...n,
-  noteA: n.noteA ?? n.text ?? "",
-  noteB: n.noteB ?? "",
-  text: n.text ?? n.noteA ?? "",
-}));
+    const job = jobRes.rows[0];
 
-  // Build allowed phases from active + view list
-  const viewPhases = viewParam
-    ? viewParam.split(",").map(s => decodeURIComponent(s).trim()).filter(Boolean)
-    : [];
+    // Load notes
+    const notesRes = await pool.query(
+      `
+      SELECT
+        id,
+        job_id as "jobId",
+        phase,
+        note_a as "noteA",
+        note_b as "noteB",
+        text,
+        status,
+        marked_complete_by as "markedCompleteBy",
+        crew_completed_at as "crewCompletedAt",
+        office_completed_at as "officeCompletedAt",
+        created_at as "createdAt"
+      FROM notes
+      WHERE job_id = $1
+      ORDER BY created_at ASC
+      `,
+      [jobId]
+    );
 
-  const allowed = new Set<string>([activePhase, ...viewPhases]);
+    const rawNotes = notesRes.rows;
 
-  // Filter notes to only allowed phases
-  const allowedNotes = notes.filter(n => allowed.has(n.phase));
+    // Build allowed phases
+    const viewPhases = viewParam
+      ? viewParam
+          .split(",")
+          .map(s => decodeURIComponent(s).trim())
+          .filter(Boolean)
+      : [];
 
-  // Return active phase notes + grouped view-only notes (nice for UI)
-  const activeNotes = allowedNotes.filter(n => n.phase === activePhase);
+    const allowed = new Set<string>([activePhase, ...viewPhases]);
 
-  const viewOnly: Record<string, typeof activeNotes> = {};
-  for (const p of viewPhases) {
-    viewOnly[p] = allowedNotes.filter(n => n.phase === p);
+    const allowedNotes = rawNotes.filter(n =>
+      allowed.has(n.phase)
+    );
+
+    const activeNotes = allowedNotes.filter(
+      n => n.phase === activePhase
+    );
+
+    const viewOnly: Record<string, typeof activeNotes> = {};
+    for (const p of viewPhases) {
+      viewOnly[p] = allowedNotes.filter(n => n.phase === p);
+    }
+
+    res.json({
+      jobId,
+      jobName: job.name,
+      activePhase,
+      notes: activeNotes,
+      viewOnly,
+      viewPhases,
+    });
+  } catch (err) {
+    console.error("❌ Crew job load failed", err);
+    res.status(500).json({ error: "Failed to load job data" });
   }
-
-  res.json({
-    jobId,
-    jobName: job.name,
-    activePhase,
-    notes: activeNotes,
-    viewOnly,
-    viewPhases
-  });
 });
 
+// =======================================================
 // POST /api/crew/job/:jobId/notes/complete
-// Body: { noteId?: string; phase: string; text?: string }
-router.post("/job/:jobId/notes/complete", (req, res) => {
+// =======================================================
+// ⚠️ SOURCE OF TRUTH = POSTGRES
+// Marks a note complete by the crew.
+// Legacy text matching is intentionally REMOVED.
+router.post("/job/:jobId/notes/complete", async (req, res) => {
   const jobId = String(req.params.jobId || "").trim();
-  const { noteId, phase, text } = req.body || {};
+  const { noteId } = req.body || {};
 
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
-  if (!phase)
-    return res.status(400).json({ error: "Missing phase" });
-
-  // NOTE (future us):
-  // Crew completion MUST target a specific note.
-  // - noteId is the source of truth
-  // - text is legacy fallback for older clients
-  // Once all clients send noteId, text matching can be removed.
-  const job = getJob(jobId);
-  if (!job) return res.status(404).json({ error: "Job not found" });
-
-  const notes = listNotesForJob(jobId);
-
-  let idx = -1;
-
-  // Prefer ID-based lookup
-  if (noteId) {
-    idx = notes.findIndex(n => n.id === noteId);
-  }
-
-  // Legacy fallback (pre-noteA/noteB clients)
-  if (idx === -1 && text) {
-    idx = notes.findIndex(
-      n => n.phase === phase && n.text === text
-    );
-  }
-
-  if (idx === -1) {
-    return res.status(404).json({ error: "Note not found" });
-  }
+  if (!noteId)
+    return res.status(400).json({ error: "Missing noteId" });
 
   const now = new Date().toISOString();
 
-  const updated = notes.map((n, i) =>
-    i !== idx
-      ? n
-      : {
-          ...n,
-          markedCompleteBy: "crew" as const,
-          crewCompletedAt: now,
-        }
-  );
+  try {
+    const result = await pool.query(
+      `
+      UPDATE notes
+      SET
+        marked_complete_by = 'crew',
+        crew_completed_at = $2
+      WHERE id = $1
+      RETURNING id
+      `,
+      [noteId, now]
+    );
 
-  upsertNotesForJob(jobId, updated);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Note not found" });
+    }
 
-  res.json({
-    success: true,
-    jobId,
-    noteId: notes[idx].id,
-    crewCompletedAt: now,
-  });
+    res.json({
+      success: true,
+      jobId,
+      noteId,
+      crewCompletedAt: now,
+    });
+  } catch (err) {
+    console.error("❌ Crew note completion failed", err);
+    res.status(500).json({ error: "Failed to complete note" });
+  }
 });
 
 export default router;
