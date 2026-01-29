@@ -1,3 +1,4 @@
+import { testPostgresConnection } from "./db/postgres";
 import express from "express";
 import cors from "cors";
 import crewRoutes from "./routes/crew";
@@ -30,6 +31,10 @@ app.use("/api", jobRoutes);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8787;
 
+
 app.listen(port, "0.0.0.0", () => {
+// ⚠️ Startup verification
+// DO NOT REMOVE — ensures DB persistence works in production
+testPostgresConnection();
   console.log("🚀 Backend listening on port", port);
 });
