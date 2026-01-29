@@ -14,13 +14,8 @@ app.use(
       "http://localhost:19006",
     ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
-
-// 🔑 REQUIRED for browser preflight
-app.options("*", cors());
 
 app.use(express.json());
 

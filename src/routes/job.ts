@@ -1,5 +1,10 @@
 import { Router } from "express";
-import { getJob, upsertNotesForJob, listNotesForJob } from "../lib/store";
+import {
+  getJob,
+  upsertJob,
+  upsertNotesForJob,
+  listNotesForJob,
+} from "../lib/store";
 
 const router = Router();
 
@@ -9,8 +14,14 @@ router.post("/job/:jobId/notes", (req, res) => {
   const jobId = String(req.params.jobId || "").trim();
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
 
-  const job = getJob(jobId);
-  if (!job) return res.status(404).json({ error: "Job not found" });
+let job = getJob(jobId);
+
+if (!job) {
+  upsertJob({
+    id: jobId,
+    name: "Untitled Job",
+  });
+}
 
 const rawNotes = req.body?.notes;
 if (!Array.isArray(rawNotes)) {
