@@ -44,6 +44,96 @@ router.get("/", async (_req, res) => {
 });
 
 /**
+ * POST /api/templates/from-job/:jobId
+ *
+ * Creates a new template from an existing job.
+ * Does NOT modify the source job.
+ *
+ * ⚠️ SOURCE OF TRUTH = POSTGRES
+ * ⚠️ SAFE TO ADD — does not affect existing routes
+ */
+router.post("/from-job/:jobId", async (req, res) => {
+  const sourceJobId = String(req.params.jobId || "").trim();
+  if (!sourceJobId) {
+    return res.status(400).json({ error: "Missing jobId" });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Load source job
+    const jobRes = await client.query(
+      `
+      SELECT name
+      FROM jobs
+      WHERE id = $1 AND is_template = false
+      `,
+      [sourceJobId]
+    );
+
+    if (jobRes.rowCount === 0) {
+      throw new Error("Source job not found or is already a template");
+    }
+
+    const templateId = `template_${Date.now()}`;
+    const templateName = `Template – ${jobRes.rows[0].name}`;
+
+    // Create template job
+    await client.query(
+      `
+      INSERT INTO jobs (id, name, is_template)
+      VALUES ($1, $2, true)
+      `,
+      [templateId, templateName]
+    );
+
+    // Copy notes from job → template
+    await client.query(
+      `
+      INSERT INTO notes (
+        id,
+        job_id,
+        phase,
+        note_a,
+        note_b,
+        text,
+        status,
+        created_at
+      )
+      SELECT
+        gen_random_uuid()::text,
+        $2,
+        phase,
+        note_a,
+        note_b,
+        text,
+        'incomplete',
+        now()
+      FROM notes
+      WHERE job_id = $1
+      `,
+      [sourceJobId, templateId]
+    );
+
+    await client.query("COMMIT");
+
+    res.json({
+      success: true,
+      templateId,
+      name: templateName,
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("❌ Failed to create template from job", err);
+    res.status(500).json({ error: "Failed to create template" });
+  } finally {
+    client.release();
+  }
+});
+
+/**
  * POST /api/templates/:templateId
  * Body: { name: string, notes: JobNote[] }
  *
@@ -210,5 +300,7 @@ router.post("/create/job", async (req, res) => {
     client.release();
   }
 });
+
+
 
 export default router;
