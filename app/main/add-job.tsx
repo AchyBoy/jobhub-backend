@@ -1,23 +1,57 @@
 import BackButton from '../../components/BackButton';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useState } from 'react';
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AddJob() {
-  const [name, setName] = useState('');
+    const params = useLocalSearchParams<{
+    templateId?: string;
+    templateName?: string;
+  }>();
+
+  const templateId = params.templateId;
+  const [name, setName] = useState(
+  params.templateName
+    ? params.templateName.replace(/^Template\s*–\s*/i, '')
+    : ''
+);
   const [type, setType] = useState<'single' | 'multi'>('single');
 
   async function saveJob() {
     if (!name.trim()) return;
 
-    const id = Date.now().toString();
+    const jobId = Date.now().toString();
 
+    // 🧠 TEMPLATE PATH
+    if (templateId) {
+      try {
+        const res = await fetch(
+          'https://api.jobhubgo.com/api/templates/create/job',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              templateId,
+              jobId,
+              jobName: name,
+            }),
+          }
+        );
+
+        if (!res.ok) throw new Error('Template creation failed');
+      } catch (err) {
+        console.warn(err);
+        return;
+      }
+    }
+
+    // ✅ Save locally (same format as before)
     const newJob = {
-      id,
+      id: jobId,
       name,
-      type, // 👈 SINGLE vs MULTI
+      type,
       createdAt: new Date().toISOString(),
     };
 
@@ -26,7 +60,7 @@ export default function AddJob() {
 
     await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
 
-    router.replace('/main/jobs');
+    router.replace(`/job/${jobId}`);
   }
 
   return (
@@ -81,9 +115,18 @@ export default function AddJob() {
           </Pressable>
         </View>
 
-        <Pressable style={styles.button} onPress={saveJob}>
-          <Text style={styles.buttonText}>Save Job</Text>
-        </Pressable>
+<Pressable
+  style={styles.templateButton}
+  onPress={() => router.push('/main/templates')}
+>
+  <Text style={styles.templateButtonText}>
+    Create From Template
+  </Text>
+</Pressable>
+
+<Pressable style={styles.button} onPress={saveJob}>
+  <Text style={styles.buttonText}>Save Job</Text>
+</Pressable>
       </View>
     </SafeAreaView>
   );
@@ -111,6 +154,21 @@ toggleTextInactive: {
     fontWeight: '700',
     marginBottom: 20,
   },
+
+  templateButton: {
+  backgroundColor: '#2563eb',
+  padding: 16,
+  borderRadius: 8,
+  alignItems: 'center',
+  marginBottom: 12,
+},
+
+templateButtonText: {
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: '600',
+},
+
   input: {
     borderWidth: 1,
     borderColor: '#ccc',
