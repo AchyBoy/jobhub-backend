@@ -1,12 +1,15 @@
-import templateRoutes from "./routes/templates";
-import { testPostgresConnection } from "./db/postgres";
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
+import { Client } from "pg";
+
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
-// ⚠️ TEMP: Postgres connectivity check
-// DO NOT REMOVE until data migration is complete
-import { Client } from "pg";
+import templateRoutes from "./routes/templates";
+import authTestRoutes from "./routes/auth-test";
+import { testPostgresConnection } from "./db/postgres";
+
+console.log("🔥 RUNNING INDEX FROM:", __filename);
 
 const app = express();
 app.set("trust proxy", 1);
@@ -24,15 +27,19 @@ app.use(
 
 app.use(express.json());
 
-// Health check
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
-});
+// Health
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-// Crew endpoints (browser links will hit this)
+// 🔐 Auth routes (MUST be before generic /api)
+app.use("/api/auth", authTestRoutes);
+
+// Crew
 app.use("/api/crew", crewRoutes);
-app.use("/api", jobRoutes);
-// Templates (office / app only)
+
+// Jobs + notes (catch-all last)
+app.use("/api/jobs", jobRoutes);
+
+// Templates
 app.use("/api/templates", templateRoutes);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8787;
@@ -59,7 +66,6 @@ const port = process.env.PORT ? Number(process.env.PORT) : 8787;
     await client.end();
   }
 })();
-
 
 app.listen(port, "0.0.0.0", () => {
 // ⚠️ Startup verification

@@ -1,9 +1,13 @@
 import { Router } from "express";
+import { requireAuth } from "../middleware/auth";
 // ⚠️ JSON store intentionally NOT imported here
 // Notes are persisted ONLY in Postgres
 import { pool } from "../db/postgres";
 
 const router = Router();
+
+// 🔐 Protect ALL job + note routes
+router.use(requireAuth);
 
 // POST /api/job/:jobId/notes
 // Body: { notes: JobNote[] }
@@ -35,32 +39,33 @@ try {
   // Ensure job exists
   await client.query(
     `
-    INSERT INTO jobs (id, name)
-    VALUES ($1, $2)
-    ON CONFLICT (id) DO NOTHING
+    INSERT INTO jobs (id, name, tenant_id)
+VALUES ($1, $2, $3)
+ON CONFLICT (id, tenant_id) DO NOTHING
     `,
-    [jobId, "Untitled Job"]
+    [jobId, "Untitled Job", req.user!.tenantId]
   );
 
   for (const n of rawNotes) {
     await client.query(
       `
-      INSERT INTO notes (
-        id,
-        job_id,
-        phase,
-        note_a,
-        note_b,
-        text,
-        status,
-        marked_complete_by,
-        crew_completed_at,
-        office_completed_at,
-        created_at
-      )
-      VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, now())
-      )
+INSERT INTO notes (
+  id,
+  job_id,
+  tenant_id,
+  phase,
+  note_a,
+  note_b,
+  text,
+  status,
+  marked_complete_by,
+  crew_completed_at,
+  office_completed_at,
+  created_at
+)
+VALUES (
+  $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, now())
+)
       ON CONFLICT (id) DO UPDATE SET
         phase = EXCLUDED.phase,
         note_a = EXCLUDED.note_a,
@@ -71,19 +76,20 @@ try {
         crew_completed_at = EXCLUDED.crew_completed_at,
         office_completed_at = EXCLUDED.office_completed_at
       `,
-      [
-        n.id,
-        jobId,
-        n.phase ?? null,
-        n.noteA ?? n.text ?? "",
-        n.noteB ?? null,
-        n.text ?? "",
-        n.status ?? "incomplete",
-        n.markedCompleteBy ?? null,
-        n.crewCompletedAt ?? null,
-        n.officeCompletedAt ?? null,
-        n.createdAt ?? null,
-      ]
+[
+  n.id,
+  jobId,
+  req.user!.tenantId,      // 🔐 tenant_id (REQUIRED)
+  n.phase ?? null,
+  n.noteA ?? n.text ?? "",
+  n.noteB ?? null,
+  n.text ?? "",
+  n.status ?? "incomplete",
+  n.markedCompleteBy ?? null,
+  n.crewCompletedAt ?? null,
+  n.officeCompletedAt ?? null,
+  n.createdAt ?? null,
+]
     );
   }
 
@@ -110,27 +116,31 @@ router.get("/job/:jobId/notes", async (req, res) => {
     return res.status(400).json({ error: "Missing jobId" });
   }
 
+  const tenantId = req.user!.tenantId;
+
   try {
+
     const result = await pool.query(
-      `
-      SELECT
-        id,
-        job_id as "jobId",
-        phase,
-        note_a as "noteA",
-        note_b as "noteB",
-        text,
-        status,
-        marked_complete_by as "markedCompleteBy",
-        crew_completed_at as "crewCompletedAt",
-        office_completed_at as "officeCompletedAt",
-        created_at as "createdAt"
-      FROM notes
-      WHERE job_id = $1
-      ORDER BY created_at ASC
-      `,
-      [jobId]
-    );
+  `
+  SELECT
+    id,
+    job_id as "jobId",
+    phase,
+    note_a as "noteA",
+    note_b as "noteB",
+    text,
+    status,
+    marked_complete_by as "markedCompleteBy",
+    crew_completed_at as "crewCompletedAt",
+    office_completed_at as "officeCompletedAt",
+    created_at as "createdAt"
+  FROM notes
+  WHERE job_id = $1
+    AND tenant_id = $2
+  ORDER BY created_at ASC
+  `,
+  [jobId, tenantId]
+);
 
     res.json({
       jobId,
@@ -166,12 +176,12 @@ router.post("/job/:jobId/meta", async (req, res) => {
   try {
     await pool.query(
       `
-      INSERT INTO jobs (id, name)
-      VALUES ($1, $2)
-      ON CONFLICT (id)
-      DO UPDATE SET name = EXCLUDED.name
+INSERT INTO jobs (id, name, tenant_id)
+VALUES ($1, $2, $3)
+ON CONFLICT (id, tenant_id)
+DO UPDATE SET name = EXCLUDED.name
       `,
-      [jobId, name]
+      [jobId, name, req.user!.tenantId]
     );
 
     res.json({ success: true });

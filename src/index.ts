@@ -1,7 +1,11 @@
+import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
+import authTestRoutes from "./routes/_auth-test";
+
+app.use("/api", authTestRoutes);
 
 const app = express();
 app.set("trust proxy", 1);
