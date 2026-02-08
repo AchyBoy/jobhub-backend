@@ -17,8 +17,9 @@ router.use(requireAuth);
 // POST /api/job/:jobId/notes
 // Body: { notes: JobNote[] }
 router.post("/:jobId/notes", async (req, res) => {
-  console.log("🔥 NOTES ROUTE VERSION: NO-JOB-INSERT v2");
+console.log("🔥 NOTES ROUTE VERSION: PROVE-DEPLOY v3 (2026-02-08 03:40Z)");
 console.log("🧪 NOTES HANDLER ENTERED");
+console.log("🧪 FILE =", __filename);
 
 // debug logs removed
   const jobId = String(req.params.jobId || "").trim();
