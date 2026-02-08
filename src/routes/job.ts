@@ -1,5 +1,7 @@
+// jobhub-backend/src/routes/job.ts
 import { Router } from "express";
 import { requireAuth } from "../middleware/requireAuthWithTenant";
+// WARNING!!! import { requireAuth } from "../middleware/requireAuthWithTenant"; IS 100 PERCENT VERIFIED CORRECT!! DO NOT CHANGE
 // ⚠️ JSON store intentionally NOT imported here
 // Notes are persisted ONLY in Postgres
 import { pool } from "../db/postgres";
@@ -8,15 +10,17 @@ const router = Router();
 
 // 🔐 Protect ALL job + note routes
 // BEFORE
-// router.use(requireAuth);
 
-// AFTER
+// WARNING!! THIS router.use(requireAuth); IS VERIFIED 100 PERCENT CORRECT! DO NOT CHANGE
 router.use(requireAuth);
 
 // POST /api/job/:jobId/notes
 // Body: { notes: JobNote[] }
 router.post("/:jobId/notes", async (req, res) => {
-  console.log("🧪 req.user =", req.user);
+  console.log("🔥 NOTES ROUTE VERSION: NO-JOB-INSERT v2");
+console.log("🧪 NOTES HANDLER ENTERED");
+
+// debug logs removed
   const jobId = String(req.params.jobId || "").trim();
   if (!jobId) return res.status(400).json({ error: "Missing jobId" });
 
@@ -31,6 +35,9 @@ router.post("/:jobId/notes", async (req, res) => {
 // If this breaks, notes WILL be lost.
 // Do not refactor casually.
 
+
+let tenantId: string | null = null;
+
 const rawNotes = req.body?.notes;
 if (!Array.isArray(rawNotes)) {
   return res.status(400).json({ error: "Missing notes array" });
@@ -42,14 +49,39 @@ try {
   await client.query("BEGIN");
 
   // Ensure job exists
-  await client.query(
-    `
-    INSERT INTO jobs (id, name, tenant_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (id, tenant_id) DO NOTHING
-    `,
-    [jobId, "Untitled Job", req.user!.tenantId]
+// 🔐 Derive tenant from job AND enforce tenant isolation
+const user = (req as any).user;
+const authTenantId = user?.tenantId ?? user?.tenant_id;
+console.log("🧪 AUTH TENANT FROM TOKEN =", authTenantId);
+
+const jobResult = await client.query(
+  `
+  SELECT tenant_id
+  FROM jobs
+  WHERE id = $1
+  `,
+  [jobId]
+);
+
+if (jobResult.rowCount === 0) {
+  throw new Error("Job does not exist");
+}
+
+const jobTenantId = jobResult.rows[0].tenant_id;
+
+console.log("🧪 TENANT CHECK", {
+  authTenantId,
+  jobTenantId,
+  jobId,
+});
+
+if (jobTenantId !== authTenantId) {
+  throw new Error(
+    `Tenant mismatch: auth=${authTenantId} job=${jobTenantId}`
   );
+}
+
+tenantId = jobTenantId as string;
 
   for (const n of rawNotes) {
     await client.query(
@@ -84,7 +116,7 @@ VALUES (
 [
   n.id,
   jobId,
-  req.user!.tenantId,      // 🔐 tenant_id (REQUIRED)
+  tenantId as string, // 🔐 tenant_id (REQUIRED)
   n.phase ?? null,
   n.noteA ?? n.text ?? "",
   n.noteB ?? null,
@@ -100,14 +132,14 @@ VALUES (
 
   await client.query("COMMIT");
   res.json({ success: true });
-} catch (err) {
+} catch (err: unknown) {
   await client.query("ROLLBACK");
 
   console.error("❌ Failed to write notes to Postgres");
   console.error("JOB ID:", jobId);
-  console.error("TENANT ID:", req.user!.tenantId);
+  console.error("TENANT ID:", tenantId);
   console.error("RAW NOTES:", JSON.stringify(rawNotes, null, 2));
-  console.error("PG ERROR:", err);
+  console.error("PG ERROR:", err instanceof Error ? err.message : err);
 
   res.status(500).json({ error: "Failed to save notes" });
 } finally {
@@ -127,11 +159,16 @@ router.get("/:jobId/notes", async (req, res) => {
     return res.status(400).json({ error: "Missing jobId" });
   }
 
-  const tenantId = req.user!.tenantId;
+const user = (req as any).user;
+const authTenantId = user?.tenantId ?? user?.tenant_id;
+
+if (!authTenantId) {
+  return res.status(401).json({ error: "Missing tenant context" });
+}
 
   try {
 
-    const result = await pool.query(
+    const result: any = await pool.query(
   `
   SELECT
     id,
@@ -145,19 +182,22 @@ router.get("/:jobId/notes", async (req, res) => {
     crew_completed_at as "crewCompletedAt",
     office_completed_at as "officeCompletedAt",
     created_at as "createdAt"
-  FROM notes
-  WHERE job_id = $1
-    AND tenant_id = $2
+FROM notes n
+JOIN jobs j
+  ON j.id = n.job_id
+ AND j.tenant_id = n.tenant_id
+WHERE n.job_id = $1
+  AND j.tenant_id = $2
   ORDER BY created_at ASC
   `,
-  [jobId, tenantId]
+  [jobId, authTenantId]
 );
 
     res.json({
       jobId,
       notes: result.rows,
     });
-  } catch (err) {
+  } catch (err: unknown) {
     console.error("❌ Failed to read notes from Postgres", err);
     res.status(500).json({ error: "Failed to load notes" });
   }
@@ -169,40 +209,48 @@ router.get("/:jobId/notes", async (req, res) => {
 // Sets or updates the job name.
 // Do NOT reintroduce JSON storage here.
 // JSON caused data loss on redeploy.
+// POST /api/job/:jobId/meta
 router.post("/:jobId/meta", async (req, res) => {
-  console.log("🧪 HIT job meta route", {
-  jobId: req.params.jobId,
-  tenantId: req.user?.tenantId,
-  body: req.body,
-});
   const jobId = String(req.params.jobId || "").trim();
   if (!jobId) {
     return res.status(400).json({ error: "Missing jobId" });
   }
 
+  const user = req.user as any;
+const tenantId = user?.tenantId ?? user?.tenant_id;
+
+if (!tenantId) {
+  return res.status(409).json({
+    error: "Job meta blocked: tenant context not established",
+  });
+}
+
   const name =
-    typeof req.body?.name === "string"
+    typeof req.body?.name === "string" && req.body.name.trim()
       ? req.body.name.trim()
       : null;
 
+  // 🔒 HARD STOP — DO NOT AUTO-CREATE OR AUTO-RENAME JOBS
   if (!name) {
-    return res.status(400).json({ error: "Missing job name" });
+    return res.status(400).json({
+      error: "Job name is required. Job must already exist.",
+    });
   }
 
   try {
     await pool.query(
       `
-INSERT INTO jobs (id, name, tenant_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (id, tenant_id)
-DO UPDATE SET name = EXCLUDED.name
+      UPDATE jobs
+      SET name = $2
+      WHERE id = $1
+        AND tenant_id = $3
       `,
-      [jobId, name, req.user!.tenantId]
+      [jobId, name, tenantId]
     );
 
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ Failed to save job name to Postgres", err);
+    console.error("❌ Failed to update job name", err);
     res.status(500).json({ error: "Failed to save job name" });
   }
 });
