@@ -1,20 +1,24 @@
-import fs from "fs";
-import * as express from "express";
-import * as cors from "cors";
+//JobHub/jobhub-backend/src/index.ts
+import authOnlyRoutes from "./routes/auth-only";
+
+import express from "express";
+import cors from "cors";
+import { Client } from "pg";
 
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
+import templateRoutes from "./routes/templates";
+import authTestRoutes from "./routes/auth-test";
+import { testPostgresConnection } from "./db/postgres";
+console.log("🧪 ACTIVE BACKEND = TOP LEVEL src/index.ts");
 
-// 🔍 RUNTIME FILESYSTEM PROBE (DEBUG)
-console.log("🧭 RUNTIME CWD:", process.cwd());
-console.log("🧭 INDEX EXISTS:", fs.existsSync("src/index.ts"));
-console.log("🧭 JOB ROUTE EXISTS:", fs.existsSync("src/routes/job.ts"));
+console.log("🔥 RUNNING INDEX FROM:", __filename);
 
-const app = express.default();
+const app = express();
 app.set("trust proxy", 1);
 
 app.use(
-  cors.default({
+  cors({
     origin: [
       "https://jobhub-web-production.up.railway.app",
       "http://localhost:3000",
@@ -26,17 +30,52 @@ app.use(
 
 app.use(express.json());
 
-// Health check
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
-});
+// Health
+app.get("/api/health", (_req, res) => res.json({ ok: true }));
 
-// Routes
+// 🔐 Auth routes (MUST be before generic /api)
+app.use("/api/auth", authTestRoutes);
+
+// 🔐 Auth-only user state (Model 1)
+app.use("/api", authOnlyRoutes);
+
+// Crew
 app.use("/api/crew", crewRoutes);
-app.use("/api", jobRoutes);
+
+// Jobs + notes (catch-all last)
+app.use("/api/jobs", jobRoutes);
+
+// Templates
+app.use("/api/templates", templateRoutes);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8787;
 
+// 🔎 TEMP STARTUP CHECK — verifies DATABASE_URL works
+(async () => {
+  if (!process.env.DATABASE_URL) {
+    console.warn("⚠️ DATABASE_URL not set — Postgres disabled");
+    return;
+  }
+
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+  });
+
+  try {
+    await client.connect();
+    const res = await client.query("select 1 as ok");
+    console.log("✅ Postgres connected:", res.rows[0]);
+  } catch (err) {
+    console.error("❌ Postgres connection failed:", err);
+  } finally {
+    await client.end();
+  }
+})();
+
 app.listen(port, "0.0.0.0", () => {
+// ⚠️ Startup verification
+// DO NOT REMOVE — ensures DB persistence works in production
+testPostgresConnection();
   console.log("🚀 Backend listening on port", port);
 });
