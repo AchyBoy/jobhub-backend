@@ -8,6 +8,7 @@ import jobRoutes from "./routes/job";
 import templateRoutes from "./routes/templates";
 import authTestRoutes from "./routes/auth-test";
 import { testPostgresConnection } from "./db/postgres";
+console.log("🧪 ACTIVE BACKEND = TOP LEVEL src/index.ts");
 
 console.log("🔥 RUNNING INDEX FROM:", __filename);
 
