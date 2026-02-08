@@ -1,13 +1,20 @@
-import express from "express";
-import cors from "cors";
+import fs from "fs";
+import * as express from "express";
+import * as cors from "cors";
+
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
 
-const app = express();
+// 🔍 RUNTIME FILESYSTEM PROBE (DEBUG)
+console.log("🧭 RUNTIME CWD:", process.cwd());
+console.log("🧭 INDEX EXISTS:", fs.existsSync("src/index.ts"));
+console.log("🧭 JOB ROUTE EXISTS:", fs.existsSync("src/routes/job.ts"));
+
+const app = express.default();
 app.set("trust proxy", 1);
 
 app.use(
-  cors({
+  cors.default({
     origin: [
       "https://jobhub-web-production.up.railway.app",
       "http://localhost:3000",
@@ -24,7 +31,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-// Crew endpoints (browser links will hit this)
+// Routes
 app.use("/api/crew", crewRoutes);
 app.use("/api", jobRoutes);
 
