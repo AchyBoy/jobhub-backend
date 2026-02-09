@@ -1,4 +1,4 @@
-console.log("🔴 BAKED API_BASE =", process.env.NEXT_PUBLIC_API_BASE);
+console.log("🧪 EXPO_PUBLIC_API_BASE =", process.env.EXPO_PUBLIC_API_BASE);
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
