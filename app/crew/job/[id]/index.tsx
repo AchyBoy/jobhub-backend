@@ -1,9 +1,12 @@
-console.log("🔴 BAKED API_BASE =", process.env.NEXT_PUBLIC_API_BASE);
+//Jobhub/app/crew/job/[id]/index.tsx
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
+
+
+// (debug removed)
 
 const norm = (v?: string) =>
   (v || '').trim().toLowerCase();
@@ -22,6 +25,8 @@ type JobNote = {
 };
 
 export default function CrewJobNotes() {
+    // runtime debug removed
+
   const params = useLocalSearchParams();
 
   const jobId = params.id as string;
