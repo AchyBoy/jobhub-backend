@@ -1,4 +1,5 @@
 // JobHub/src/lib/apiClient.ts
+import { supabase } from './supabase';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
 
@@ -6,25 +7,24 @@ if (!API_BASE) {
   console.warn('🔴 API_BASE missing — check EXPO_PUBLIC_API_BASE');
 }
 
-type ApiFetchOptions = RequestInit & {
-  json?: boolean;
-};
-
 export async function apiFetch(
   path: string,
-  options: ApiFetchOptions = {}
+  options: RequestInit = {}
 ) {
-  const url = `${API_BASE}${path}`;
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
 
   const headers: HeadersInit = {
     ...(options.headers || {}),
+    'Content-Type': 'application/json',
   };
 
-  if (options.body && !headers['Content-Type']) {
-    headers['Content-Type'] = 'application/json';
+  if (session?.access_token) {
+    headers.Authorization = `Bearer ${session.access_token}`;
   }
 
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
   });
@@ -34,7 +34,9 @@ export async function apiFetch(
     throw new Error(text || `Request failed (${res.status})`);
   }
 
-  return res.headers.get('content-type')?.includes('application/json')
+  return res.headers
+    .get('content-type')
+    ?.includes('application/json')
     ? res.json()
     : res.text();
 }
