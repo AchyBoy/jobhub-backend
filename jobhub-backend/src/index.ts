@@ -1,7 +1,12 @@
 //JobHub/jobhub-backend/src/index.ts
-// dotenv intentionally not used in production.
-// Railway injects environment variables at runtime.
+
+// Load .env locally only (Railway injects env vars in production)
+if (process.env.NODE_ENV !== "production") {
+  require("dotenv").config();
+}
+
 console.log("🧪 BACKEND DATABASE_URL =", process.env.DATABASE_URL);
+
 import templateRoutes from "./routes/templates";
 import { testPostgresConnection } from "./db/postgres";
 import express from "express";
