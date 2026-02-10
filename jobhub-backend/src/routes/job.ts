@@ -13,49 +13,41 @@ router.use(requireAuthWithTenant);
 // POST /api/job/:jobId/notes
 // Body: { notes: JobNote[] }
 router.post("/job/:jobId/notes", async (req, res) => {
-const jobId = String(req.params.jobId || "").trim();
-const tenantId = (req as any).user?.tenantId;
+  const jobId = String(req.params.jobId || "").trim();
 
-if (!jobId) {
-  return res.status(400).json({ error: "Missing jobId" });
-}
+  if (!jobId) {
+    return res.status(400).json({ error: "Missing jobId" });
+  }
 
-if (!tenantId) {
-  return res.status(403).json({ error: "Missing tenant context" });
-}
+  const rawNotes = req.body?.notes;
+  if (!Array.isArray(rawNotes)) {
+    return res.status(400).json({ error: "Missing notes array" });
+  }
 
-// ================================
-// POST /api/job/:jobId/notes
-// ================================
-// ⚠️ SOURCE OF TRUTH = POSTGRES
-// ⚠️ DO NOT WRITE NOTES TO JSON
-// JSON storage caused DATA LOSS on redeploy.
-// This endpoint is PRODUCTION SAFE.
-//
-// If this breaks, notes WILL be lost.
-// Do not refactor casually.
+  const client = await pool.connect();
 
-const rawNotes = req.body?.notes;
-if (!Array.isArray(rawNotes)) {
-  return res.status(400).json({ error: "Missing notes array" });
-}
+  try {
+    await client.query("BEGIN");
 
-const client = await pool.connect();
+    // 🔐 Resolve tenant from EXISTING job (source of truth)
+    const jobResult = await client.query(
+      `
+      SELECT tenant_id
+      FROM jobs
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [jobId]
+    );
 
-try {
-  await client.query("BEGIN");
+    if (jobResult.rowCount === 0) {
+      throw new Error("Job does not exist");
+    }
 
-  // Ensure job exists
-  await client.query(
-    `
-INSERT INTO jobs (id, name, tenant_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (id) DO NOTHING
-    `,
-    [jobId, "Untitled Job", tenantId]
-  );
+    const tenantId = jobResult.rows[0].tenant_id;
 
-  for (const n of rawNotes) {
+for (const n of rawNotes) {
+  
     await client.query(
       `
 INSERT INTO notes (

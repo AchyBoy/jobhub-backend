@@ -253,43 +253,25 @@ async function loadNotes() {
   // 2️⃣ Fetch backend state (source of truth)
   const remoteNotes = await fetchNotesFromBackend(id as string);
 
-  // 3️⃣ Backend has notes
-  if (remoteNotes && remoteNotes.length) {
-const merged =
-  localNotes.length > 0
-    ? localNotes.map(local => {
-        const remote = remoteNotes.find(
-          r => r.phase === local.phase && r.text === local.text
-        );
-        return remote
-  ? {
-      ...local,
-      ...remote,
+// 3️⃣ Backend responded
+if (Array.isArray(remoteNotes)) {
+  // Only replace local state if backend actually has notes
+  if (remoteNotes.length > 0) {
+    setNotes(remoteNotes);
 
-      // NOTE: ensure legacy text maps into noteA if needed
-      noteA: remote.noteA ?? remote.text ?? local.noteA,
-      noteB: remote.noteB ?? local.noteB,
-    }
-  : local;
-      })
-    : remoteNotes;
-
-    setNotes(merged);
-    setBackendHydrated(true);
     await AsyncStorage.setItem(
       `job:${id}:notes`,
-      JSON.stringify(merged)
+      JSON.stringify(remoteNotes)
     );
-    return;
   }
 
-  // 4️⃣ No local + no backend = empty job (VALID)
-  setNotes([]);
   setBackendHydrated(true);
-  await AsyncStorage.setItem(
-    `job:${id}:notes`,
-    JSON.stringify([])
-  );
+  return;
+}
+
+// 4️⃣ Backend unavailable → preserve local cache + UI
+console.warn("⚠️ Backend unavailable — preserving local notes");
+setBackendHydrated(true);
 }
 
 async function markAttemptedComplete(
