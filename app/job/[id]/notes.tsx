@@ -544,100 +544,100 @@ async function changeNotePhase(noteId: string, newPhase: string) {
             </View>
           ))}
 
-          {/* OFFICE COMPLETED ACCORDION */}
-          {officeCompleted.length > 0 && (
-            <View style={{ marginTop: 10 }}>
-<Pressable
-  onPress={() =>
-    setShowCompletedByPhase(prev => ({
-      ...prev,
-      [phase]: !prev[phase],
-    }))
-  }
->
-  <Text style={styles.sectionTitle}>
-    {showCompletedByPhase[phase] ? '▼' : '▶'} Completed
-  </Text>
-</Pressable>
+{/* OFFICE COMPLETED ACCORDION */}
+<View style={{ marginTop: 10 }}>
+  {officeCompleted.length > 0 && (
+    <>
+      <Pressable
+        onPress={() =>
+          setShowCompletedByPhase(prev => ({
+            ...prev,
+            [phase]: !prev[phase],
+          }))
+        }
+      >
+        <Text style={styles.sectionTitle}>
+          {showCompletedByPhase[phase] ? '▼' : '▶'} Completed
+        </Text>
+      </Pressable>
 
-{showCompletedByPhase[phase] &&
-  officeCompleted.map(note => (
-                  <View
-                    key={note.id}
-                    style={[
-                      styles.noteCard,
-                      { opacity: 0.6 },
-                    ]}
-                  >
-{/* NOTE A — primary instruction */}
-{editMode ? (
-  <TextInput
-    value={note.noteA ?? ''}
-    onChangeText={text =>
-      updateNoteField(note.id, 'noteA', text)
-    }
-    style={styles.noteText}
-    multiline
-  />
-) : (
-  <Text style={styles.noteText}>
-    {note.noteA ?? note.text}
-  </Text>
-)}
+      {showCompletedByPhase[phase] &&
+        officeCompleted.map(note => (
+          <View
+            key={note.id}
+            style={[
+              styles.noteCard,
+              { opacity: 0.6 },
+            ]}
+          >
+            {/* NOTE A — primary instruction */}
+            {editMode ? (
+              <TextInput
+                value={note.noteA ?? ''}
+                onChangeText={text =>
+                  updateNoteField(note.id, 'noteA', text)
+                }
+                style={styles.noteText}
+                multiline
+              />
+            ) : (
+              <Text style={styles.noteText}>
+                {note.noteA ?? note.text}
+              </Text>
+            )}
 
-{/* NOTE B — clarification / context */}
-{editMode ? (
-  <TextInput
-    value={note.noteB ?? ''}
-    onChangeText={text =>
-      updateNoteField(note.id, 'noteB', text)
-    }
-    placeholder="Add clarification…"
-    style={styles.noteSubText}
-    multiline
-  />
-) : note.noteB ? (
-  <Text style={styles.noteSubText}>
-    {note.noteB}
-  </Text>
-) : null}
+            {/* NOTE B — clarification / context */}
+            {editMode ? (
+              <TextInput
+                value={note.noteB ?? ''}
+                onChangeText={text =>
+                  updateNoteField(note.id, 'noteB', text)
+                }
+                placeholder="Add clarification…"
+                style={styles.noteSubText}
+                multiline
+              />
+            ) : note.noteB ? (
+              <Text style={styles.noteSubText}>
+                {note.noteB}
+              </Text>
+            ) : null}
 
-{/* NOTE (future us):
-    Autosave indicator — OFFICE COMPLETED NOTES
-    Kept separate from ACTIVE section for clarity */}
-<View style={styles.autosaveSlot}>
-  {editMode && saveStateByNote[note.id] ? (
-    <Text style={{ fontSize: 11, opacity: 0.5 }}>
-      {saveStateByNote[note.id] === 'saving'
-        ? 'saving…'
-        : 'saved'}
-    </Text>
-  ) : null}
-</View>
-
-                    {note.officeCompletedAt && (
-                      <Text style={styles.meta}>
-                        Office completed:{' '}
-                        {new Date(
-                          note.officeCompletedAt
-                        ).toLocaleDateString()}
-                      </Text>
-                    )}
-
-                    <Pressable
-                      style={styles.action}
-                      onPress={() =>
-                        markOfficeIncomplete(note.id)
-                      }
-                    >
-                      <Text style={styles.actionText}>
-                        Mark incomplete
-                      </Text>
-                    </Pressable>
-                  </View>
-                ))}
+            {/* Autosave indicator */}
+            <View style={styles.autosaveSlot}>
+              {editMode && saveStateByNote[note.id] ? (
+                <Text style={{ fontSize: 11, opacity: 0.5 }}>
+                  {saveStateByNote[note.id] === 'saving'
+                    ? 'saving…'
+                    : 'saved'}
+                </Text>
+              ) : null}
             </View>
-          )}
+
+            {note.officeCompletedAt && (
+              <Text style={styles.meta}>
+                Office completed:{' '}
+                {new Date(
+                  note.officeCompletedAt
+                ).toLocaleDateString()}
+              </Text>
+            )}
+
+            <Pressable
+              style={styles.action}
+              onPress={() =>
+                markOfficeIncomplete(note.id)
+              }
+            >
+              <Text style={styles.actionText}>
+                Mark incomplete
+              </Text>
+            </Pressable>
+          </View>
+        ))}
+    </>
+  )}
+</View>
         </View>
       )}
     </View>
