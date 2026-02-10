@@ -1,3 +1,5 @@
+//JobHub/app/job/[id]/notes.tsx
+import { apiFetch } from '../../../src/lib/apiClient';
 import HomeButton from '../../../components/HomeButton';
 import * as Linking from 'expo-linking';
 
@@ -15,22 +17,6 @@ import BackButton from '../../../components/BackButton';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AddNoteBar from '../../../components/notes/AddNoteBar';
-
-const API_BASE =
-  process.env.EXPO_PUBLIC_API_BASE ||
-  'https://adorable-passion-production-5ab7.up.railway.app';
-
-async function fetchNotesFromBackend(jobId: string): Promise<JobNote[] | null> {
-  try {
-    const res = await fetch(`${API_BASE}/api/job/${jobId}/notes`);
-    if (!res.ok) return null;
-
-    const data = await res.json();
-    return data.notes as JobNote[];
-  } catch {
-    return null;
-  }
-}
 
 type NoteStatus = 'blank' | 'incomplete' | 'complete';
 
@@ -61,6 +47,17 @@ type JobNote = {
   createdAt: string;
 };
 
+async function fetchNotesFromBackend(
+  jobId: string
+): Promise<JobNote[] | null> {
+  try {
+    const res = await apiFetch(`/api/job/${jobId}/notes`);
+    return res?.notes ?? null;
+  } catch (err) {
+    console.warn('⚠️ Failed to load notes from backend', err);
+    return null;
+  }
+}
 
 export default function JobNotes() {
   const { id } = useLocalSearchParams();
@@ -103,11 +100,10 @@ const payload = notes.map(n => ({
   createdAt: n.createdAt,
 }));
 
-    await fetch(`${API_BASE}/api/job/${jobId}/notes`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ notes: payload }),
-    });
+await apiFetch(`/api/job/${jobId}/notes`, {
+  method: 'POST',
+  body: JSON.stringify({ notes: payload }),
+});
   } catch (err) {
     console.warn('Failed to sync notes to backend', err);
   }

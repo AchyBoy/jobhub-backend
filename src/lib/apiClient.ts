@@ -2,6 +2,10 @@
 import { supabase } from './supabase';
 
 const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
+console.log(
+  '🧪 EXPO_PUBLIC_API_BASE (runtime) =',
+  API_BASE
+);
 
 if (!API_BASE) {
   console.warn('🔴 API_BASE missing — check EXPO_PUBLIC_API_BASE');
