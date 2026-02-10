@@ -4,6 +4,7 @@
 // If this breaks, persistence is broken.
 
 import { Pool } from "pg";
+console.log("🧪 POSTGRES URL =", process.env.DATABASE_URL);
 
 if (!process.env.DATABASE_URL) {
   console.warn("⚠️ DATABASE_URL is not set");
