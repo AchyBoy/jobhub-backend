@@ -1,3 +1,4 @@
+//JobHub/jobhub-backend/src/routes/crew.ts
 import { Router } from "express";
 import { pool } from "../db/postgres";
 
@@ -115,17 +116,18 @@ router.post("/job/:jobId/notes/complete", async (req, res) => {
   const now = new Date().toISOString();
 
   try {
-    const result = await pool.query(
-      `
-      UPDATE notes
-      SET
-        marked_complete_by = 'crew',
-        crew_completed_at = $2
-      WHERE id = $1
-      RETURNING id
-      `,
-      [noteId, now]
-    );
+const result = await pool.query(
+  `
+  UPDATE notes
+  SET
+    marked_complete_by = 'crew',
+    crew_completed_at = $3
+  WHERE id = $1
+    AND job_id = $2
+  RETURNING id
+  `,
+  [noteId, jobId, now]
+);
 
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "Note not found" });
