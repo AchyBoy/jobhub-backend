@@ -1,3 +1,6 @@
+import dotenv from "dotenv";
+dotenv.config();
+console.log("🧪 BACKEND DATABASE_URL =", process.env.DATABASE_URL);
 import templateRoutes from "./routes/templates";
 import { testPostgresConnection } from "./db/postgres";
 import express from "express";

@@ -1,8 +1,10 @@
+//JobHub/app/(tabs)/add-job.tsx
 import BackButton from '../../components/BackButton';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '../../src/lib/apiClient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AddJob() {
@@ -48,17 +50,29 @@ export default function AddJob() {
     }
 
     // ✅ Save locally (same format as before)
-    const newJob = {
-      id: jobId,
-      name,
-      type,
-      createdAt: new Date().toISOString(),
-    };
+const newJob = {
+  id: jobId,
+  name,
+  type,
+  createdAt: new Date().toISOString(),
+};
 
-    const existing = await AsyncStorage.getItem('jobs');
-    const jobs = existing ? JSON.parse(existing) : [];
+// 1️⃣ Save locally (offline-first)
+const existing = await AsyncStorage.getItem('jobs');
+const jobs = existing ? JSON.parse(existing) : [];
+await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
 
-    await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
+// 2️⃣ Attempt backend sync (non-blocking)
+try {
+  await apiFetch(`/api/job/${jobId}/meta`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+} catch (err) {
+  console.warn('⚠️ Failed to sync job to backend (offline?)', err);
+}
+
+
 
     router.replace(`/job/${jobId}`);
   }

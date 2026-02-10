@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
+import { apiFetch } from '../../../../src/lib/apiClient';
 
 
 // (debug removed)
@@ -43,26 +44,64 @@ export default function CrewJobNotes() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobId]);
 
-  async function loadNotes() {
-    const stored = await AsyncStorage.getItem(`job:${jobId}:notes`);
-    if (stored) setNotes(JSON.parse(stored));
-  }
+async function loadNotes() {
+  try {
+    const res = await apiFetch(`/api/job/${jobId}/notes`);
+    const backendNotes = res.notes ?? [];
 
-  async function crewMarkComplete(noteId: string) {
-    const updated = notes.map(n =>
-      n.id === noteId
-        ? {
-            ...n,
-            markedCompleteBy: 'crew',
-            crewCompletedAt: new Date().toISOString(),
-          }
-        : n
+    setNotes(backendNotes);
+
+    // cache for offline use
+    await AsyncStorage.setItem(
+      `job:${jobId}:notes`,
+      JSON.stringify(backendNotes)
     );
+  } catch (err) {
+    console.warn('⚠️ Backend unavailable, loading cached notes');
 
-    setNotes(updated);
-
-    await AsyncStorage.setItem(`job:${jobId}:notes`, JSON.stringify(updated));
+    const cached = await AsyncStorage.getItem(`job:${jobId}:notes`);
+    if (cached) {
+      setNotes(JSON.parse(cached));
+    } else {
+      setNotes([]);
+    }
   }
+}
+
+async function crewMarkComplete(noteId: string) {
+  const updated = notes.map(n =>
+    n.id === noteId
+      ? {
+          ...n,
+          markedCompleteBy: 'crew',
+          crewCompletedAt: new Date().toISOString(),
+          status: 'complete',
+        }
+      : n
+  );
+
+  // 1️⃣ Update UI immediately
+  setNotes(updated);
+
+  // 2️⃣ Cache locally for offline use
+  await AsyncStorage.setItem(
+    `job:${jobId}:notes`,
+    JSON.stringify(updated)
+  );
+
+  // 3️⃣ Attempt backend sync (non-blocking)
+  try {
+await apiFetch(`/api/job/${jobId}/notes`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({ notes: updated }),
+});
+  } catch (err) {
+    console.warn('⚠️ Failed to sync notes, will retry later', err);
+  }
+}
 
   // Group notes by phase (keeps phases together)
   const grouped = notes.reduce<Record<string, JobNote[]>>((acc, note) => {
