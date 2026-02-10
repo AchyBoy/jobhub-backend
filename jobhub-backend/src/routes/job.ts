@@ -40,9 +40,12 @@ router.post("/job/:jobId/notes", async (req, res) => {
       [jobId]
     );
 
-    if (jobResult.rowCount === 0) {
-      throw new Error("Job does not exist");
-    }
+if (jobResult.rowCount === 0) {
+  await client.query("ROLLBACK");
+  return res.status(403).json({
+    error: "Job does not exist for this tenant",
+  });
+}
 
     const tenantId = jobResult.rows[0].tenant_id;
 
