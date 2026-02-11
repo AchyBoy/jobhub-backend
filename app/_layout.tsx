@@ -1,4 +1,5 @@
 // JobHub/app/_layout.tsx
+
 import { useEffect, useState } from 'react';
 import { Slot } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
@@ -28,7 +29,7 @@ export default function RootLayout() {
     return () => { alive = false; };
   }, []);
 
-  if (!ready) return null;
+if (!ready) return null;
 
-  return <Slot />;
+return <Slot />;
 }
