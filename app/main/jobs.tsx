@@ -2,6 +2,8 @@
 
 import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '../../src/lib/apiClient';
+import { supabase } from '../../src/lib/supabase';
 import { useEffect, useState } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
 
@@ -17,11 +19,47 @@ export default function JobsScreen() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
 
-  async function loadJobs() {
-    const stored = await AsyncStorage.getItem('jobs');
-    const parsed = stored ? JSON.parse(stored) : [];
-    setJobs(parsed);
+async function loadJobs() {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session) return;
+
+  const userId = session.user.id;
+
+  try {
+    // 1️⃣ Get tenant context
+    const me = await apiFetch('/api/tenant/me');
+    const tenantId = me.tenantId;
+
+    if (!tenantId) return;
+
+    const cacheKey = `jobs:${tenantId}`;
+
+    // 2️⃣ Fetch backend (source of truth)
+    const res = await apiFetch('/api/job');
+
+    setJobs(res.jobs);
+
+    // 3️⃣ Cache per-tenant
+    await AsyncStorage.setItem(cacheKey, JSON.stringify(res.jobs));
+  } catch (err) {
+    console.warn('Backend unavailable — loading cached jobs');
+
+    try {
+      const me = await apiFetch('/api/tenant/me');
+      const tenantId = me.tenantId;
+      if (!tenantId) return;
+
+      const cacheKey = `jobs:${tenantId}`;
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) {
+        setJobs(JSON.parse(cached));
+      }
+    } catch {}
   }
+}
 
   // Reload every time tab is focused
   useFocusEffect(() => {

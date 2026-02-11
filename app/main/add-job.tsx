@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
+import { supabase } from '../../src/lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AddJob() {
@@ -49,25 +50,41 @@ export default function AddJob() {
       }
     }
 
-    // ✅ Save locally (same format as before)
-    const newJob = {
-      id: jobId,
-      name,
-      type,
-      createdAt: new Date().toISOString(),
-    };
-
-    const existing = await AsyncStorage.getItem('jobs');
-    const jobs = existing ? JSON.parse(existing) : [];
-
-await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
-
-// 🔐 Persist job to backend (tenant-aware)
+// 🔐 Persist job to backend (source of truth)
 try {
   await apiFetch(`/api/job/${jobId}/meta`, {
     method: 'POST',
     body: JSON.stringify({ name }),
   });
+
+  // 1️⃣ Get tenant context
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (session) {
+    const me = await apiFetch('/api/tenant/me');
+    const tenantId = me.tenantId;
+
+    if (tenantId) {
+      const cacheKey = `jobs:${tenantId}`;
+
+      const cached = await AsyncStorage.getItem(cacheKey);
+      const parsed = cached ? JSON.parse(cached) : [];
+
+      const newJob = {
+        id: jobId,
+        name,
+        type,
+        createdAt: new Date().toISOString(),
+      };
+
+      await AsyncStorage.setItem(
+        cacheKey,
+        JSON.stringify([newJob, ...parsed])
+      );
+    }
+  }
 } catch (err) {
   console.warn('Failed to create job in backend', err);
   return;
