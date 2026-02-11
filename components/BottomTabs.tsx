@@ -36,19 +36,21 @@ function goTo(tabKey: string) {
  
 
   async function loadTabs() {
-    const stored = await AsyncStorage.getItem('tabConfig');
+    const stored = await AsyncStorage.getItem('tabConfig_v2');
 
     if (stored) {
       setTabs(JSON.parse(stored));
     } else {
-      const defaults: TabItem[] = [
-        { key: 'index', label: 'Home', icon: 'home', enabled: true },
-        { key: 'jobs', label: 'Jobs', icon: 'briefcase', enabled: true },
-        { key: 'tasks', label: 'Tasks', icon: 'checkmark-circle', enabled: true },
-        { key: 'add-job', label: 'Add Job', icon: 'add-circle', enabled: true },
-        { key: 'vendors', label: 'Vendors', icon: 'people', enabled: true },
-        { key: 'settings', label: 'Settings', icon: 'settings', enabled: true },
-      ];
+
+const defaults: TabItem[] = [
+  { key: 'index', label: 'Home', icon: 'home', enabled: true },
+  { key: 'jobs', label: 'Jobs', icon: 'briefcase', enabled: true },
+  { key: 'add-job', label: 'Add Job', icon: 'add-circle', enabled: true },
+  { key: 'vendors', label: 'Vendors', icon: 'people', enabled: true },
+  { key: 'material', label: 'Material', icon: 'cube', enabled: true },
+  { key: 'contractors', label: 'Contractors', icon: 'hammer', enabled: true },
+  { key: 'settings', label: 'Settings', icon: 'settings', enabled: true },
+];
 
       await AsyncStorage.setItem('tabConfig', JSON.stringify(defaults));
       setTabs(defaults);
