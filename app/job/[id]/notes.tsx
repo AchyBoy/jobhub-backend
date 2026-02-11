@@ -1,6 +1,6 @@
 //JobHub/app/job/[id]/notes.tsx
 import { apiFetch } from '../../../src/lib/apiClient';
-import HomeButton from '../../../components/HomeButton';
+
 import * as Linking from 'expo-linking';
 
 import {
@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
-import BackButton from '../../../components/BackButton';
+
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AddNoteBar from '../../../components/notes/AddNoteBar';
@@ -372,9 +372,6 @@ async function changeNotePhase(noteId: string, newPhase: string) {
   return (
 
 <SafeAreaView style={styles.container}>
-  <BackButton />
-  <HomeButton />
-
   <ScrollView
     contentContainerStyle={{ paddingBottom: 40 }}
     showsVerticalScrollIndicator={false}

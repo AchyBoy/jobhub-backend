@@ -1,6 +1,6 @@
 //JobHub/app/job/[id].tsx
 import { Text, StyleSheet, Pressable, View } from 'react-native';
-import BackButton from '../../components/BackButton';
+
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -24,13 +24,6 @@ useEffect(() => {
 
   return (
 <SafeAreaView style={styles.container}>
-  <View style={styles.header}>
-    <BackButton />
-
-    <Pressable onPress={() => router.push('/main/jobs')}>
-      <Text style={styles.home}>Home</Text>
-    </Pressable>
-  </View>
 
   <Text style={styles.title}>{jobName}</Text>
 
@@ -113,18 +106,5 @@ cardSub: {
 
 disabled: {
   opacity: 0.4,
-},
-
-header: {
-  width: '100%',
-  flexDirection: 'row',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-},
-
-home: {
-  fontSize: 16,
-  fontWeight: '600',
-  color: '#2563eb',
 },
 });

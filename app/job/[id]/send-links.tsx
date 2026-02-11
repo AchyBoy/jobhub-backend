@@ -1,12 +1,13 @@
+//JobHub/app/job/[id]/send-links.tsx
 import * as Clipboard from 'expo-clipboard';
-import HomeButton from '../../../components/HomeButton';
+
 import * as Linking from 'expo-linking';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import BackButton from '../../../components/BackButton';
+
 import CrewManager from '../../../components/crew/CrewManager';
 
 type JobNote = {
@@ -73,9 +74,7 @@ function sendCrewLink() {
 }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <BackButton />
-      <HomeButton />
+  <SafeAreaView style={styles.container}>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Text style={styles.title}>Send Crew Link</Text>

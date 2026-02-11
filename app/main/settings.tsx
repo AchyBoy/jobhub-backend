@@ -2,6 +2,7 @@
 
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
+import { supabase } from '../../src/lib/supabase';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -10,12 +11,23 @@ export default function SettingsScreen() {
 <View style={styles.container}>
   <Text style={styles.title}>Settings</Text>
 
-      <Pressable
-        style={styles.item}
-        onPress={() => router.push('/main/edit-tabs')}
-      >
-        <Text style={styles.itemText}>Customize Tabs</Text>
-      </Pressable>
+<Pressable
+  style={styles.item}
+  onPress={() => router.push('/main/edit-tabs')}
+>
+  <Text style={styles.itemText}>Customize Tabs</Text>
+</Pressable>
+
+<Pressable
+  style={[styles.item, { marginTop: 16, backgroundColor: '#fee2e2' }]}
+  onPress={async () => {
+    await supabase.auth.signOut();
+  }}
+>
+  <Text style={[styles.itemText, { color: '#b91c1c' }]}>
+    Logout
+  </Text>
+</Pressable>
     </View>
   );
 }
