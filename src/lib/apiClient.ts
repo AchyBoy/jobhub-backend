@@ -19,6 +19,11 @@ export async function apiFetch(
     data: { session },
   } = await supabase.auth.getSession();
 
+  console.log(
+    "🧪 SESSION in apiFetch =",
+    session?.access_token ? "TOKEN PRESENT" : "NO TOKEN"
+  );
+
   const headers: HeadersInit = {
     ...(options.headers || {}),
     'Content-Type': 'application/json',

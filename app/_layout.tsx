@@ -1,35 +1,60 @@
 // JobHub/app/_layout.tsx
-
 import { useEffect, useState } from 'react';
-import { Slot } from 'expo-router';
+import { Slot, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
-  const [hasSession, setHasSession] = useState(false);
+  const [session, setSession] = useState<any>(null);
 
+  const router = useRouter();
+  const segments = useSegments();
+
+  // 1️⃣ Load initial session + subscribe
   useEffect(() => {
-    let alive = true;
+    let mounted = true;
 
-    async function boot() {
+    async function init() {
       const { data } = await supabase.auth.getSession();
-      if (!alive) return;
+      if (!mounted) return;
 
-      setHasSession(!!data.session);
+      setSession(data.session);
 
-      const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-        setHasSession(!!session);
-      });
+      const { data: sub } = supabase.auth.onAuthStateChange(
+        (_event, session) => {
+          setSession(session);
+        }
+      );
 
       setReady(true);
+
       return () => sub.subscription.unsubscribe();
     }
 
-    boot();
-    return () => { alive = false; };
+    init();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-if (!ready) return null;
+  // 2️⃣ Handle routing reactively
+  useEffect(() => {
+    if (!ready) return;
 
-return <Slot />;
+    const inAuthGroup = segments[0] === '(auth)';
+
+    if (!session && !inAuthGroup) {
+      router.replace('/(auth)/login');
+      return;
+    }
+
+    if (session && inAuthGroup) {
+      router.replace('/main');
+      return;
+    }
+  }, [ready, session, segments]);
+
+  if (!ready) return null;
+
+  return <Slot />;
 }
