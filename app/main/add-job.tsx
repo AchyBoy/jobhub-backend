@@ -1,4 +1,5 @@
-import BackButton from '../../components/BackButton';
+//JobHub/app/main/add-job.tsx
+
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -60,14 +61,12 @@ export default function AddJob() {
 
     await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
 
-    router.replace(`/job/${jobId}`);
+    router.push(`/job/${jobId}`);
   }
 
   return (
     <SafeAreaView style={styles.safe}>
 <View style={styles.container}>
-  <BackButton />
-
   <Text style={styles.title}>Add Job</Text>
 
         <TextInput

@@ -1,4 +1,5 @@
-import BackButton from '../../components/BackButton';
+//JobHub/app/main/templates.tsx
+
 import { View, Text, StyleSheet, FlatList, Pressable, Alert } from 'react-native';
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
@@ -32,10 +33,8 @@ export default function TemplatesScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      <BackButton />
-
-      <Text style={styles.title}>Templates</Text>
+<View style={styles.container}>
+  <Text style={styles.title}>Templates</Text>
 
       {loading ? (
         <Text style={styles.empty}>Loading templates…</Text>

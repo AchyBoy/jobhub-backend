@@ -1,4 +1,5 @@
-import BackButton from '../../components/BackButton';
+//JobHub/app/main/jobs.tsx
+
 import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
@@ -32,10 +33,8 @@ export default function JobsScreen() {
   }
 
 return (
-  <View style={styles.container}>
-    <BackButton />
-
-    <Text style={styles.title}>Jobs</Text>
+<View style={styles.container}>
+  <Text style={styles.title}>Jobs</Text>
 
       {jobs.length === 0 ? (
         <Text style={styles.empty}>No jobs yet. Tap “Add Job”.</Text>

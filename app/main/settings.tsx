@@ -1,4 +1,5 @@
-import BackButton from '../../components/BackButton';
+//JobHub/app/main/settings.tsx
+
 import { View, Text, StyleSheet, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -7,8 +8,6 @@ export default function SettingsScreen() {
 
   return (
 <View style={styles.container}>
-  <BackButton />
-
   <Text style={styles.title}>Settings</Text>
 
       <Pressable

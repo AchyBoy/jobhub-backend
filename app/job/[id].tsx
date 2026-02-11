@@ -1,3 +1,4 @@
+//JobHub/app/job/[id].tsx
 import { Text, StyleSheet, Pressable, View } from 'react-native';
 import BackButton from '../../components/BackButton';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -26,7 +27,7 @@ useEffect(() => {
   <View style={styles.header}>
     <BackButton />
 
-    <Pressable onPress={() => router.replace('/main/jobs')}>
+    <Pressable onPress={() => router.push('/main/jobs')}>
       <Text style={styles.home}>Home</Text>
     </Pressable>
   </View>

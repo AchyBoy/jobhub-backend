@@ -1,12 +1,11 @@
+//JobHub/app/main/vendors.tsx
 import { View, Text, StyleSheet } from 'react-native';
-import BackButton from '../../components/BackButton';
+
 
 export default function VendorsScreen() {
   return (
     <View style={styles.container}>
-      <BackButton />
-
-      <Text style={styles.title}>Vendors</Text>
+  <Text style={styles.title}>Vendors</Text>
     </View>
   );
 }

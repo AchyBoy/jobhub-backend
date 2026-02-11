@@ -1,7 +1,8 @@
 // JobHub/app/_layout.tsx
 import { useEffect, useState } from 'react';
-import { Slot, useRouter, useSegments } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
+import { Text } from 'react-native';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -54,7 +55,38 @@ export default function RootLayout() {
     }
   }, [ready, session, segments]);
 
-  if (!ready) return null;
+if (!ready) return null;
 
-  return <Slot />;
+return (
+  <Stack
+    screenOptions={{
+      headerBackTitle: 'Back',
+      headerRight: () => {
+        const isInsideMain = segments[0] === 'main';
+
+        // No Home button inside main shell (tabs handle nav)
+        if (isInsideMain) return null;
+
+        return (
+          <Text
+            onPress={() => router.push('/main')}
+            style={{ marginRight: 16, fontWeight: '600' }}
+          >
+            Home
+          </Text>
+        );
+      },
+    }}
+  >
+    {/* Auth screens */}
+    <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+
+    {/* Main tab shell */}
+    <Stack.Screen name="main" />
+
+    {/* Drill-down screens (need back + home) */}
+    <Stack.Screen name="job/[id]" />
+    <Stack.Screen name="job/[id]/notes" />
+  </Stack>
+);
 }

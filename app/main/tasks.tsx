@@ -1,12 +1,11 @@
+//JobHub/app/main/tasks.tsx
 import { View, Text, StyleSheet } from 'react-native';
-import BackButton from '../../components/BackButton';
+
 
 export default function TasksScreen() {
   return (
-    <View style={styles.container}>
-      <BackButton />
-
-      <Text style={styles.title}>Tasks</Text>
+<View style={styles.container}>
+  <Text style={styles.title}>Tasks</Text>
     </View>
   );
 }

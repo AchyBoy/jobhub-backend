@@ -1,3 +1,4 @@
+//JobHub/app/main/edit-tabs.tsx
 import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
@@ -97,7 +98,7 @@ async function loadTabs() {
 <Pressable
   style={styles.done}
   onPress={() => {
-    router.replace('/main');
+    router.push('/main');
   }}
 >
   <Text style={styles.doneText}>Done</Text>

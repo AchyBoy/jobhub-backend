@@ -25,13 +25,13 @@ useFocusEffect(
 );
 
   // ✅ ADD THIS FUNCTION
-  function goTo(tabKey: string) {
-    if (tabKey === 'index') {
-      router.replace('/main');
-    } else {
-      router.replace(`/main/${tabKey}`);
-    }
+function goTo(tabKey: string) {
+  if (tabKey === 'index') {
+    router.push('/main');
+  } else {
+    router.push(`/main/${tabKey}`);
   }
+}
 
  
 
