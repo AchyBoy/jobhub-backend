@@ -14,6 +14,7 @@ import cors from "cors";
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
 import tenantRoutes from "./routes/tenant";
+import phasesRoutes from "./routes/phases";
 // ⚠️ TEMP: Postgres connectivity check
 // DO NOT REMOVE until data migration is complete
 import { Client } from "pg";
@@ -45,6 +46,7 @@ app.use("/api/tenant", tenantRoutes);
 app.use("/api", jobRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
+app.use("/api/phases", phasesRoutes);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8787;
 

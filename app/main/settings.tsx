@@ -19,6 +19,13 @@ export default function SettingsScreen() {
 </Pressable>
 
 <Pressable
+  style={[styles.item, { marginTop: 16 }]}
+  onPress={() => router.push('/main/phases')}
+>
+  <Text style={styles.itemText}>Manage Phases</Text>
+</Pressable>
+
+<Pressable
   style={[styles.item, { marginTop: 16, backgroundColor: '#fee2e2' }]}
   onPress={async () => {
     await supabase.auth.signOut();

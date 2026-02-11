@@ -371,29 +371,34 @@ async function changeNotePhase(noteId: string, newPhase: string) {
 
   return (
 
-<SafeAreaView style={styles.container}>
+<SafeAreaView
+  style={styles.container}
+  edges={['left', 'right', 'bottom']}
+>
+
+  <Text style={styles.title}>Job Notes</Text>
+  <Text style={styles.sub}>Job ID: {id}</Text>
+
+  <Pressable
+    onPress={() => setEditMode(v => !v)}
+    style={{ marginBottom: 16 }}
+  >
+    <Text style={{ fontWeight: '700', color: '#2563eb' }}>
+      {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+    </Text>
+  </Pressable>
+
+  <AddNoteBar
+    phase={currentPhase}
+    onPhaseChange={setCurrentPhase}
+    onAdd={addNote}
+  />
+
   <ScrollView
+    style={{ flex: 1 }}
     contentContainerStyle={{ paddingBottom: 40 }}
     showsVerticalScrollIndicator={false}
   >
-    <Text style={styles.title}>Job Notes</Text>
-    <Text style={styles.sub}>Job ID: {id}</Text>
-
-    <Pressable
-  onPress={() => setEditMode(v => !v)}
-  style={{ marginBottom: 16 }}
->
-  <Text style={{ fontWeight: '700', color: '#2563eb' }}>
-    {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
-  </Text>
-</Pressable>
-
-<AddNoteBar
-  phase={currentPhase}
-  onPhaseChange={setCurrentPhase}
-  onAdd={addNote}
-/>
-
 
     {/* PHASE ACCORDION */}
 {allPhases.map(phase => {
@@ -648,29 +653,28 @@ async function changeNotePhase(noteId: string, newPhase: string) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 20,
-    paddingHorizontal: 20,
-    backgroundColor: '#fff',
-  },
+container: {
+  flex: 1,
+  paddingHorizontal: 20,
+  paddingTop: 0,
+  backgroundColor: '#fff',
+},
 meta: {
   marginTop: 6,
   fontSize: 12,
   opacity: 0.6,
 },
 
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
-    marginTop: 10,
-  },
-
-  sub: {
-    fontSize: 14,
-    opacity: 0.6,
-    marginBottom: 20,
-  },
+title: {
+  fontSize: 26,
+  fontWeight: '700',
+  marginTop: 0,
+},
+sub: {
+  fontSize: 14,
+  opacity: 0.6,
+  marginBottom: 12,
+},
 
   section: {
     gap: 12,
