@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
+import { apiFetch } from '../src/lib/apiClient';
 import { Text } from 'react-native';
 
 export default function RootLayout() {
@@ -37,6 +38,25 @@ export default function RootLayout() {
       mounted = false;
     };
   }, []);
+
+  // 1.5️⃣ Ensure tenant exists before allowing main access
+useEffect(() => {
+  if (!ready || !session) return;
+
+  async function checkTenant() {
+    try {
+      const res = await apiFetch('/api/tenant/me');
+
+      if (res.needsCompany) {
+        router.replace('/create-company');
+      }
+    } catch (err) {
+      console.warn('Tenant check failed', err);
+    }
+  }
+
+  checkTenant();
+}, [ready, session]);
 
   // 2️⃣ Handle routing reactively
   useEffect(() => {

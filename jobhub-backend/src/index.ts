@@ -13,6 +13,7 @@ import express from "express";
 import cors from "cors";
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
+import tenantRoutes from "./routes/tenant";
 // ⚠️ TEMP: Postgres connectivity check
 // DO NOT REMOVE until data migration is complete
 import { Client } from "pg";
@@ -40,6 +41,7 @@ app.get("/api/health", (_req, res) => {
 
 // Crew endpoints (browser links will hit this)
 app.use("/api/crew", crewRoutes);
+app.use("/api/tenant", tenantRoutes);
 app.use("/api", jobRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);

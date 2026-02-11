@@ -1,5 +1,12 @@
 // jobhub-backend/src/middleware/requireAuthWithTenant.ts
 import { Request, Response, NextFunction } from "express";
+import { createClient } from "@supabase/supabase-js";
+import { pool } from "../db/postgres";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 /**
  * TEMP AUTH MIDDLEWARE
@@ -20,11 +27,37 @@ export async function requireAuthWithTenant(
     return res.status(401).json({ error: "Missing Authorization header" });
   }
 
-  // TEMP: trust frontend-authenticated user
-  // Tenant enforcement already handled at data level
+  const token = auth.replace("Bearer ", "");
+
+  // 1️⃣ Verify Supabase JWT
+  const { data: userData, error } = await supabase.auth.getUser(token);
+
+  if (error || !userData?.user) {
+    return res.status(401).json({ error: "Invalid or expired token" });
+  }
+
+  const userId = userData.user.id;
+
+  // 2️⃣ Resolve tenant from tenant_users table
+  const result = await pool.query(
+    `
+    SELECT tenant_id
+    FROM tenant_users
+    WHERE user_id = $1
+    LIMIT 1
+    `,
+    [userId]
+  );
+
+  if (result.rowCount === 0) {
+    return res.status(403).json({ error: "User not assigned to a tenant" });
+  }
+
+  const tenantId = result.rows[0].tenant_id;
+
   (req as any).user = {
-    id: "frontend-user",
-    tenantId: "tenant_default",
+    id: userId,
+    tenantId,
   };
 
   next();

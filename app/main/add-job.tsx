@@ -4,6 +4,7 @@ import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useState } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '../../src/lib/apiClient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AddJob() {
@@ -59,9 +60,20 @@ export default function AddJob() {
     const existing = await AsyncStorage.getItem('jobs');
     const jobs = existing ? JSON.parse(existing) : [];
 
-    await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
+await AsyncStorage.setItem('jobs', JSON.stringify([...jobs, newJob]));
 
-    router.push(`/job/${jobId}`);
+// 🔐 Persist job to backend (tenant-aware)
+try {
+  await apiFetch(`/api/job/${jobId}/meta`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  });
+} catch (err) {
+  console.warn('Failed to create job in backend', err);
+  return;
+}
+
+router.push(`/job/${jobId}`);
   }
 
   return (
