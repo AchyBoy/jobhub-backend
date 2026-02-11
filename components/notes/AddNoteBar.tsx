@@ -1,28 +1,45 @@
+//JobHub/components/notes/AddNoteBar.tsx
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useState } from 'react';
+import { useRouter } from 'expo-router';
 
 type Props = {
+  phases: string[];
   phase: string;
   onPhaseChange: (phase: string) => void;
   onAdd: (text: string) => void;
 };
 
-const PHASES = ['Rough', 'Trim', 'Final'];
-
-export default function AddNoteBar({ phase, onPhaseChange, onAdd }: Props) {
+export default function AddNoteBar({
+  phases,
+  phase,
+  onPhaseChange,
+  onAdd,
+}: Props) {
+  const router = useRouter();
   const [text, setText] = useState('');
+  const noPhases = phases.length === 0;
+const noPhaseSelected = !phase;
+const disabled = noPhases || noPhaseSelected;
 
-  function submit() {
-    if (!text.trim()) return;
-    onAdd(text.trim());
-    setText('');
+function submit() {
+  if (noPhases) {
+    router.push('/main/phases');
+    return;
   }
+
+  if (noPhaseSelected) return;
+  if (!text.trim()) return;
+
+  onAdd(text.trim());
+  setText('');
+}
 
   return (
     <View style={styles.container}>
       {/* Phase selector */}
       <View style={styles.phaseRow}>
-        {PHASES.map(p => (
+        {phases.map(p => (
           <Pressable
             key={p}
             onPress={() => onPhaseChange(p)}
@@ -52,9 +69,23 @@ export default function AddNoteBar({ phase, onPhaseChange, onAdd }: Props) {
           style={styles.input}
         />
 
-        <Pressable style={styles.addBtn} onPress={submit}>
-          <Text style={styles.addText}>Add</Text>
-        </Pressable>
+<Pressable
+  style={[
+    styles.addBtn,
+    (noPhases || noPhaseSelected) && {
+      backgroundColor: noPhases ? '#dc2626' : '#9ca3af',
+    },
+  ]}
+  onPress={submit}
+>
+  <Text style={styles.addText}>
+    {noPhases
+      ? 'No Phases – Check Settings'
+      : noPhaseSelected
+      ? 'Choose Phase'
+      : 'Add'}
+  </Text>
+</Pressable>
       </View>
     </View>
   );

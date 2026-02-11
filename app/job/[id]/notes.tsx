@@ -59,6 +59,16 @@ async function fetchNotesFromBackend(
   }
 }
 
+async function fetchPhasesFromBackend(): Promise<string[] | null> {
+  try {
+    const res = await apiFetch('/api/phases');
+    return res?.phases?.map((p: any) => p.name) ?? null;
+  } catch (err) {
+    console.warn('⚠️ Failed to load phases from backend', err);
+    return null;
+  }
+}
+
 export default function JobNotes() {
   const { id } = useLocalSearchParams();
 
@@ -121,12 +131,12 @@ const [saveStateByNote, setSaveStateByNote] =
   const [showCompletedByPhase, setShowCompletedByPhase] =
   useState<Record<string, boolean>>({});
 
-const [currentPhase, setCurrentPhase] = useState('Rough');
-const [expandedPhase, setExpandedPhase] = useState<string | null>('Rough');
+const [phases, setPhases] = useState<string[]>([]);
+const [currentPhase, setCurrentPhase] = useState<string>('');
+const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
 const [crewViewPhases, setCrewViewPhases] = useState<string[]>([]);
-const allPhases = Array.from(
-  new Set(notes.map(n => n.phase))
-).sort();
+
+const allPhases = phases;
 
 
 function buildCrewUrl(
@@ -235,8 +245,38 @@ async function updateNoteField(
 
 useEffect(() => {
   if (!id) return;
+
   loadNotes();
+  loadPhases();
 }, [id]);
+
+async function loadPhases() {
+  // 1️⃣ Load local cache first (offline-first)
+  const stored = await AsyncStorage.getItem('phases');
+
+  if (stored) {
+    const parsed = JSON.parse(stored);
+    setPhases(parsed);
+
+    if (parsed.length && !currentPhase) {
+      setCurrentPhase(parsed[0]);
+      setExpandedPhase(parsed[0]);
+    }
+  }
+
+  // 2️⃣ Fetch backend
+  const remote = await fetchPhasesFromBackend();
+
+  if (Array.isArray(remote)) {
+    setPhases(remote);
+    await AsyncStorage.setItem('phases', JSON.stringify(remote));
+
+    if (remote.length && !currentPhase) {
+      setCurrentPhase(remote[0]);
+      setExpandedPhase(remote[0]);
+    }
+  }
+}
 
 async function loadNotes() {
   if (!id) return;
@@ -388,11 +428,12 @@ async function changeNotePhase(noteId: string, newPhase: string) {
     </Text>
   </Pressable>
 
-  <AddNoteBar
-    phase={currentPhase}
-    onPhaseChange={setCurrentPhase}
-    onAdd={addNote}
-  />
+<AddNoteBar
+  phases={allPhases}
+  phase={currentPhase}
+  onPhaseChange={setCurrentPhase}
+  onAdd={addNote}
+/>
 
   <ScrollView
     style={{ flex: 1 }}
