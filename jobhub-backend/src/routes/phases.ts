@@ -47,4 +47,25 @@ router.post("/", async (req: any, res) => {
   res.json({ success: true });
 });
 
+// DELETE /api/phases/:id
+router.delete('/:id', requireAuthWithTenant, async (req, res) => {
+  const phaseId = req.params.id;
+  const tenantId = (req as any).user.tenantId;
+
+  try {
+    await pool.query(
+      `
+      DELETE FROM phases
+      WHERE id = $1 AND tenant_id = $2
+      `,
+      [phaseId, tenantId]
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('Delete phase error:', err);
+    return res.status(500).json({ error: 'Failed to delete phase' });
+  }
+});
+
 export default router;
