@@ -105,7 +105,15 @@ return (
     <Stack.Screen name="main" />
 
     {/* Drill-down screens (need back + home) */}
-    <Stack.Screen name="job/[id]" />
+    <Stack.Screen
+  name="job/[id]"
+  options={({ route }: any) => ({
+    title:
+      typeof route.params?.name === 'string'
+        ? route.params.name
+        : 'Job',
+  })}
+/>
     <Stack.Screen name="job/[id]/notes" />
   </Stack>
 );

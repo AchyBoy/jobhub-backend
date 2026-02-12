@@ -66,9 +66,12 @@ async function loadJobs() {
     loadJobs();
   });
 
-  function openJob(id: string) {
-    router.push(`/job/${id}`);
-  }
+function openJob(job: Job) {
+  router.push({
+    pathname: `/job/${job.id}`,
+    params: { name: job.name },
+  });
+}
 
 return (
 <View style={styles.container}>
@@ -84,7 +87,7 @@ return (
           renderItem={({ item }) => (
 <Pressable
   style={styles.card}
-  onPress={() => openJob(item.id)}
+  onPress={() => openJob(item)}
 >
   <Text style={styles.jobName}>{item.name}</Text>
 

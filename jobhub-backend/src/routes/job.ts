@@ -7,35 +7,46 @@ import { pool } from "../db/postgres";
 
 const router = Router();
 
-// GET single job
-router.get('/:id', async (req: any, res) => {
-  const jobId = req.params.id;
-  const tenantId = req.user.tenantId;
+// 🔐 ALL job routes require auth + tenant
+router.use(requireAuthWithTenant);
+
+// GET /api/job/:jobId
+router.get("/job/:jobId", async (req, res) => {
+  const jobId = String(req.params.jobId || "").trim();
+  const tenantId = (req as any).user?.tenantId;
+
+  if (!tenantId) {
+    return res.status(403).json({ error: "Missing tenant context" });
+  }
+
+  if (!jobId) {
+    return res.status(400).json({ error: "Missing jobId" });
+  }
 
   try {
     const result = await pool.query(
       `
       SELECT id, name
       FROM jobs
-      WHERE id = $1 AND tenant_id = $2
+      WHERE id = $1
+        AND tenant_id = $2
       LIMIT 1
       `,
       [jobId, tenantId]
     );
 
     if (result.rows.length === 0) {
-      return res.status(404).json({ error: 'Job not found' });
+      return res.status(404).json({ error: "Job not found" });
     }
 
     return res.json({ job: result.rows[0] });
   } catch (err) {
-    console.error('Fetch job error:', err);
-    return res.status(500).json({ error: 'Failed to fetch job' });
+    console.error("Fetch job error:", err);
+    return res.status(500).json({ error: "Failed to fetch job" });
   }
 });
 
 // 🔐 ALL job routes require auth + tenant
-router.use(requireAuthWithTenant);
 
 // POST /api/job/:jobId/notes
 // Body: { notes: JobNote[] }

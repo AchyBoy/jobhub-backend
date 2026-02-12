@@ -7,23 +7,19 @@ import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function JobHub() {
-const { id } = useLocalSearchParams();
+const { id, name } = useLocalSearchParams();
 const router = useRouter();
 
-const [jobName, setJobName] = useState<string>('Job');
-
-useEffect(() => {
-  if (!id) return;
-
-  AsyncStorage.getItem(`job:${id}:name`).then(name => {
-    if (name) {
-      setJobName(name);
-    }
-  });
-}, [id]);
+const jobName =
+  typeof name === 'string' && name.length > 0
+    ? name
+    : 'Job';
 
   return (
-<SafeAreaView style={styles.container}>
+<SafeAreaView
+  style={styles.container}
+  edges={['left', 'right', 'bottom']}
+>
 
   <Text style={styles.title}>{jobName}</Text>
 
@@ -66,12 +62,12 @@ useEffect(() => {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    paddingTop: 20,      // 👈 breathing room below Dynamic Island
-    paddingHorizontal: 20,
-  },
+container: {
+  flex: 1,
+  alignItems: 'center',
+  paddingTop: 0,
+  paddingHorizontal: 20,
+},
   title: {
     fontSize: 28,
     fontWeight: '700',

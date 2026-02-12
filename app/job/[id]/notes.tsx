@@ -73,6 +73,7 @@ export default function JobNotes() {
   const { id } = useLocalSearchParams();
 
   const [notes, setNotes] = useState<JobNote[]>([]);
+  const [jobName, setJobName] = useState<string>('');
 
   // NOTE (future us):
   // Prevents accidental data loss on first load.
@@ -153,6 +154,16 @@ function buildCrewUrl(
   }
 
   return `${base}?${params.toString()}`;
+}
+
+async function fetchJobFromBackend(jobId: string): Promise<string | null> {
+  try {
+    const res = await apiFetch(`/api/job/${jobId}`);
+    return res?.job?.name ?? null;
+  } catch (err) {
+    console.warn('⚠️ Failed to load job name', err);
+    return null;
+  }
 }
 
 function sendCrewLink(
@@ -248,7 +259,17 @@ useEffect(() => {
 
   loadNotes();
   loadPhases();
+  loadJob();
 }, [id]);
+
+async function loadJob() {
+  if (!id) return;
+
+  const name = await fetchJobFromBackend(id as string);
+  if (name) {
+    setJobName(name);
+  }
+}
 
 async function loadPhases() {
   // 1️⃣ Load local cache first (offline-first)
@@ -289,6 +310,7 @@ async function loadNotes() {
     localNotes = JSON.parse(stored);
     setNotes(localNotes);
   }
+
 
   // 2️⃣ Fetch backend state (source of truth)
   const remoteNotes = await fetchNotesFromBackend(id as string);
@@ -416,7 +438,9 @@ async function changeNotePhase(noteId: string, newPhase: string) {
   edges={['left', 'right', 'bottom']}
 >
 
-  <Text style={styles.title}>Job Notes</Text>
+  <Text style={styles.title}>
+  {jobName ? jobName : 'Job Notes'}
+</Text>
   <Text style={styles.sub}>Job ID: {id}</Text>
 
   <Pressable
