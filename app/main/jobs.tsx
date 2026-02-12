@@ -98,28 +98,47 @@ function openJob(job: Job) {
 
 return (
 <View style={styles.container}>
-  <View style={styles.headerRow}>
-  <Text style={styles.title}>Jobs</Text>
+<View style={styles.headerRow}>
 
+  {/* LEFT */}
+<View style={[styles.headerSide, { marginTop: 6 }]}>
   <Pressable
-    style={styles.sortBtn}
-    onPress={() => {
-      const order: any = {
-        recent: 'alpha-asc',
-        'alpha-asc': 'alpha-desc',
-        'alpha-desc': 'recent',
-      };
-      setSortMode(order[sortMode]);
-    }}
+    style={styles.addBtn}
+    onPress={() => router.push('/main/add-job')}
   >
-    <Text style={styles.sortText}>
-      {sortMode === 'recent'
-        ? 'Recent'
-        : sortMode === 'alpha-asc'
-        ? 'A–Z'
-        : 'Z–A'}
-    </Text>
-  </Pressable>
+      <Text style={styles.addText}>Add Job+</Text>
+    </Pressable>
+  </View>
+
+  {/* CENTER */}
+  <View style={styles.headerCenter}>
+    <Text style={styles.title}>Jobs</Text>
+  </View>
+
+  {/* RIGHT */}
+<View style={[styles.headerSide, { alignItems: 'flex-end', marginTop: -4 }]}>
+  <Text style={styles.sortLabel}>Sort Jobs</Text>
+    <Pressable
+      style={styles.addBtn}
+      onPress={() => {
+        const order: any = {
+          recent: 'alpha-asc',
+          'alpha-asc': 'alpha-desc',
+          'alpha-desc': 'recent',
+        };
+        setSortMode(order[sortMode]);
+      }}
+    >
+      <Text style={styles.addText}>
+        {sortMode === 'recent'
+          ? 'Recent'
+          : sortMode === 'alpha-asc'
+          ? 'A–Z'
+          : 'Z–A'}
+      </Text>
+    </Pressable>
+  </View>
+
 </View>
 
       {jobs.length === 0 ? (
@@ -165,21 +184,45 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
 headerRow: {
-  position: 'relative',
+  flexDirection: 'row',
   alignItems: 'center',
-  justifyContent: 'center',
+  justifyContent: 'space-between',
   marginBottom: 20,
 },
 
-sortBtn: {
-  position: 'absolute',
-  right: 0,
-  paddingVertical: 6,
-  paddingHorizontal: 12,
-  borderRadius: 999,
-  backgroundColor: '#2563eb',
+headerSide: {
+  width: 130,
+  justifyContent: 'center',
 },
 
+headerCenter: {
+  flex: 1,
+  alignItems: 'center',
+},
+
+sortLabel: {
+  fontSize: 11,
+  fontWeight: '600',
+  color: '#64748b',
+  marginBottom: 2,
+},
+
+addBtn: {
+  paddingVertical: 8,
+  paddingHorizontal: 16,
+  minWidth: 100,
+  alignItems: 'center',
+  borderRadius: 999,
+  backgroundColor: '#eff6ff',
+  borderWidth: 1,
+  borderColor: '#bfdbfe',
+},
+
+addText: {
+  fontSize: 13,
+  fontWeight: '600',
+  color: '#1e40af',
+},
 sortText: {
   color: '#fff',
   fontSize: 13,
