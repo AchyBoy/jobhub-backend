@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
 
 type Contact = {
@@ -34,13 +35,31 @@ export default function CrewsScreen() {
   const [saveStateByCrew, setSaveStateByCrew] =
   useState<Record<string, 'idle' | 'saving' | 'saved'>>({});
 
-  async function loadCrews() {
+async function loadCrews() {
   try {
+    // 1️⃣ Load cached crews first (instant UI)
+    const cached = await AsyncStorage.getItem('crews_v1');
+
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      setCrews(parsed);
+      prevCrewsRef.current = parsed;
+    }
+
+    // 2️⃣ Fetch backend (source of truth)
     const res = await apiFetch('/api/crews');
-    setCrews(res.crews ?? []);
-prevCrewsRef.current = res.crews ?? [];
+    const remote = res.crews ?? [];
+
+    setCrews(remote);
+    prevCrewsRef.current = remote;
+
+    // 3️⃣ Update cache mirror
+    await AsyncStorage.setItem(
+      'crews_v1',
+      JSON.stringify(remote)
+    );
   } catch (err) {
-    console.warn('Failed to load crews', err);
+    console.warn('⚠️ Backend unavailable — using cached crews');
   }
 }
 
@@ -64,7 +83,24 @@ async function addCrew() {
     });
 
     setNewCrewName('');
-    await loadCrews();
+    // Optimistic UI update
+const newCrew: Crew = {
+  id,
+  name: newCrewName.trim(),
+  contacts: [],
+};
+
+const updated = [newCrew, ...crews];
+
+setCrews(updated);
+prevCrewsRef.current = updated;
+
+await AsyncStorage.setItem(
+  'crews_v1',
+  JSON.stringify(updated)
+);
+
+await loadCrews(); // refresh if backend available
   } catch (err) {
     console.warn('Failed to save crew', err);
   }
@@ -139,14 +175,26 @@ saveTimers.current[crewId] = setTimeout(async () => {
   if (!crew) return;
 
     try {
-      await apiFetch('/api/crews', {
-        method: 'POST',
-        body: JSON.stringify({
-          id: crew.id,
-          name: crew.name,
-          contacts: crew.contacts,
-        }),
-      });
+await apiFetch('/api/crews', {
+  method: 'POST',
+  body: JSON.stringify({
+    id: crew.id,
+    name: crew.name,
+    contacts: crew.contacts,
+  }),
+});
+
+// 🔁 Update local cache mirror
+const updated = prevCrewsRef.current.map(c =>
+  c.id === crew.id ? crew : c
+);
+
+prevCrewsRef.current = updated;
+
+await AsyncStorage.setItem(
+  'crews_v1',
+  JSON.stringify(updated)
+);
 
       setSaveStateByCrew(prev => ({
         ...prev,

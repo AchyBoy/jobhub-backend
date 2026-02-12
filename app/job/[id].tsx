@@ -6,17 +6,88 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '../../src/lib/apiClient';
 
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
 const router = useRouter();
 
 const [detailsExpanded, setDetailsExpanded] = useState(false);
+const [assignments, setAssignments] = useState<any[]>([]);
+const [crews, setCrews] = useState<any[]>([]);
+const [phases, setPhases] = useState<string[]>([]);
 
 const jobName =
   typeof name === 'string' && name.length > 0
     ? name
     : 'Job';
+
+useEffect(() => {
+  if (!id) return;
+  loadCrews();
+  loadPhases();
+  loadAssignments();
+}, [id]);
+
+async function loadCrews() {
+  const local = await AsyncStorage.getItem('crews_v1');
+  if (local) setCrews(JSON.parse(local));
+
+  try {
+    const res = await apiFetch('/api/crews');
+    setCrews(res.crews ?? []);
+    await AsyncStorage.setItem('crews_v1', JSON.stringify(res.crews ?? []));
+  } catch {}
+}
+
+async function loadPhases() {
+  const local = await AsyncStorage.getItem('phases');
+  if (local) setPhases(JSON.parse(local));
+
+  try {
+    const res = await apiFetch('/api/phases');
+    const names = res?.phases?.map((p: any) => p.name) ?? [];
+    setPhases(names);
+    await AsyncStorage.setItem('phases', JSON.stringify(names));
+  } catch {}
+}
+
+async function loadAssignments() {
+  const local = await AsyncStorage.getItem(`job:${id}:crews`);
+  if (local) setAssignments(JSON.parse(local));
+
+  try {
+    const res = await apiFetch(`/api/jobs/${id}/crews`);
+    setAssignments(res.assignments ?? []);
+    await AsyncStorage.setItem(
+      `job:${id}:crews`,
+      JSON.stringify(res.assignments ?? [])
+    );
+  } catch {}
+}
+
+async function assignCrew(crewId: string, phase: string) {
+  const newAssignment = {
+    id: Date.now().toString(),
+    crewId,
+    phase,
+  };
+
+  const updated = [...assignments, newAssignment];
+  setAssignments(updated);
+
+  await AsyncStorage.setItem(
+    `job:${id}:crews`,
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/jobs/${id}/crews`, {
+      method: 'POST',
+      body: JSON.stringify({ crewId, phase }),
+    });
+  } catch {}
+}
 
   return (
 
@@ -64,12 +135,60 @@ const jobName =
           <Text style={styles.detailLabel}>Permit Company</Text>
           <Text style={styles.detailValue}>Not Assigned</Text>
 
-          <Text style={[styles.detailLabel, { marginTop: 8 }]}>
-            Assigned Crews (per phase)
-          </Text>
-          <Text style={styles.detailValue}>Rough → —</Text>
-          <Text style={styles.detailValue}>Trim → —</Text>
-          <Text style={styles.detailValue}>Final → —</Text>
+<Text style={[styles.detailLabel, { marginTop: 12 }]}>
+  Assigned Crews (per phase)
+</Text>
+
+{phases.length === 0 && (
+  <Text style={{ opacity: 0.5, marginTop: 4 }}>
+    No phases configured
+  </Text>
+)}
+
+{phases.map(phase => {
+  const phaseAssignments = assignments.filter(
+    a => a.phase === phase
+  );
+
+  return (
+    <View
+      key={phase}
+      style={{ marginTop: 10 }}
+    >
+      <Text style={{ fontWeight: '700', fontSize: 14 }}>
+        {phase}
+      </Text>
+
+      {phaseAssignments.length === 0 ? (
+        <Text style={{ opacity: 0.5, marginTop: 2 }}>
+          No crew assigned
+        </Text>
+      ) : (
+        phaseAssignments.map(a => {
+          const crew = crews.find(c => c.id === a.crewId);
+
+          return (
+            <View
+              key={a.id}
+              style={{
+                marginTop: 4,
+                paddingVertical: 4,
+                paddingHorizontal: 8,
+                backgroundColor: '#dbeafe',
+                borderRadius: 999,
+                alignSelf: 'flex-start',
+              }}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '600' }}>
+                {crew?.name ?? 'Unknown'}
+              </Text>
+            </View>
+          );
+        })
+      )}
+    </View>
+  );
+})}
         </View>
       )}
     </Pressable>
@@ -79,6 +198,7 @@ const jobName =
   {/* 🔷 WORK SECTION */}
   <View style={styles.sectionBlock}>
 
+    {/* Notes */}
     <Pressable
       style={styles.card}
       onPress={() => router.push(`/job/${id}/notes`)}
@@ -89,6 +209,7 @@ const jobName =
       </Text>
     </Pressable>
 
+    {/* Material */}
     <View style={[styles.card, styles.disabled]}>
       <Text style={styles.cardTitle}>Material</Text>
       <Text style={styles.cardSub}>
@@ -96,18 +217,7 @@ const jobName =
       </Text>
     </View>
 
-    <View style={[styles.card, styles.disabled]}>
-      <Text style={styles.cardTitle}>Dates</Text>
-      <Text style={styles.cardSub}>
-        Milestones & inspections
-      </Text>
-    </View>
-
-  </View>
-
-  {/* 🔷 COMMUNICATION SECTION */}
-  <View style={styles.sectionBlock}>
-
+    {/* Send Links */}
     <Pressable
       style={styles.card}
       onPress={() => router.push(`/job/${id}/send-links`)}
@@ -115,6 +225,17 @@ const jobName =
       <Text style={styles.cardTitle}>Send Links</Text>
       <Text style={styles.cardSub}>
         Email phase-specific crew links
+      </Text>
+    </Pressable>
+
+    {/* Scheduling (renamed from Dates) */}
+    <Pressable
+      style={styles.card}
+      onPress={() => router.push(`/job/${id}/scheduling`)}
+    >
+      <Text style={styles.cardTitle}>Scheduling</Text>
+      <Text style={styles.cardSub}>
+        Assign crews per phase
       </Text>
     </Pressable>
 
