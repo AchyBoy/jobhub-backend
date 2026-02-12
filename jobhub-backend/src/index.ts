@@ -15,6 +15,7 @@ import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
 import tenantRoutes from "./routes/tenant";
 import phasesRoutes from "./routes/phases";
+import crewsRoutes from "./routes/crews";
 // ⚠️ TEMP: Postgres connectivity check
 // DO NOT REMOVE until data migration is complete
 import { Client } from "pg";
@@ -44,6 +45,7 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/crew", crewRoutes);
 app.use("/api/tenant", tenantRoutes);
 app.use("/api", jobRoutes);
+app.use("/api/crews", crewsRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
 app.use("/api/phases", phasesRoutes);
