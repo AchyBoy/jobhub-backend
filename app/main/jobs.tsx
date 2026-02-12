@@ -18,6 +18,9 @@ type Job = {
 export default function JobsScreen() {
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
+const [sortMode, setSortMode] = useState<
+  'alpha-asc' | 'alpha-desc' | 'recent'
+>('recent');
 
 async function loadJobs() {
   const {
@@ -66,6 +69,26 @@ async function loadJobs() {
     loadJobs();
   });
 
+  function getSortedJobs(list: Job[]) {
+  const sorted = [...list];
+
+  if (sortMode === 'alpha-asc') {
+    sorted.sort((a, b) =>
+      a.name.localeCompare(b.name)
+    );
+  }
+
+  if (sortMode === 'alpha-desc') {
+    sorted.sort((a, b) =>
+      b.name.localeCompare(a.name)
+    );
+  }
+
+  // recent = default backend order (already DESC by created_at)
+
+  return sorted;
+}
+
 function openJob(job: Job) {
   router.push({
     pathname: `/job/${job.id}`,
@@ -75,13 +98,35 @@ function openJob(job: Job) {
 
 return (
 <View style={styles.container}>
+  <View style={styles.headerRow}>
   <Text style={styles.title}>Jobs</Text>
+
+  <Pressable
+    style={styles.sortBtn}
+    onPress={() => {
+      const order: any = {
+        recent: 'alpha-asc',
+        'alpha-asc': 'alpha-desc',
+        'alpha-desc': 'recent',
+      };
+      setSortMode(order[sortMode]);
+    }}
+  >
+    <Text style={styles.sortText}>
+      {sortMode === 'recent'
+        ? 'Recent'
+        : sortMode === 'alpha-asc'
+        ? 'A–Z'
+        : 'Z–A'}
+    </Text>
+  </Pressable>
+</View>
 
       {jobs.length === 0 ? (
         <Text style={styles.empty}>No jobs yet. Tap “Add Job”.</Text>
       ) : (
         <FlatList
-          data={jobs}
+          data={getSortedJobs(jobs)}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 40 }}
           renderItem={({ item }) => (
@@ -116,14 +161,36 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: 60, // Dynamic Island safe
+     paddingTop: 16, // tighter to header
     backgroundColor: '#fff',
   },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    marginBottom: 15,
-  },
+headerRow: {
+  position: 'relative',
+  alignItems: 'center',
+  justifyContent: 'center',
+  marginBottom: 20,
+},
+
+sortBtn: {
+  position: 'absolute',
+  right: 0,
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  borderRadius: 999,
+  backgroundColor: '#2563eb',
+},
+
+sortText: {
+  color: '#fff',
+  fontSize: 13,
+  fontWeight: '600',
+},
+title: {
+  fontSize: 30,
+  fontWeight: '800',
+   color: '#111',   // black
+  textAlign: 'center',
+},
   empty: {
     fontSize: 16,
     opacity: 0.6,
@@ -133,7 +200,9 @@ const styles = StyleSheet.create({
   card: {
     padding: 16,
     borderRadius: 14,
-    backgroundColor: '#f3f4f6',
+    backgroundColor: '#eff6ff',
+borderWidth: 1,
+borderColor: '#bfdbfe',
     marginBottom: 12,
   },
   jobName: {
@@ -156,10 +225,10 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
   },
 
-  single: {
-    backgroundColor: '#e5e7eb', // light gray
-    color: '#111827',           // dark text
-  },
+single: {
+  backgroundColor: '#dbeafe',
+  color: '#1e3a8a',
+},
 
   multi: {
     backgroundColor: '#dbeafe', // light blue
