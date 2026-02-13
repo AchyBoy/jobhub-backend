@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
   id: string;
@@ -62,44 +63,95 @@ export default function InspectionsScreen() {
     }
   }
 
-  async function addInspection() {
-    if (!newName.trim()) return;
+async function addInspection() {
+  if (!newName.trim()) return;
 
-    const id = Date.now().toString();
+  const id = Date.now().toString();
 
+  const newInspection: Inspection = {
+    id,
+    name: newName.trim(),
+    contacts: [],
+  };
+
+  const updated = [newInspection, ...inspections];
+
+  // 1️⃣ Immediate UI
+  setInspections(updated);
+  prevRef.current = updated;
+  setNewName('');
+
+  // 2️⃣ Persist locally
+  await AsyncStorage.setItem(
+    'inspections_v1',
+    JSON.stringify(updated)
+  );
+
+  // 3️⃣ Attempt backend
+  try {
     await apiFetch('/api/inspections', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: newName.trim(),
-        contacts: [],
-      }),
+      body: JSON.stringify(newInspection),
     });
-
-    setNewName('');
-    await load();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'inspection_upsert',
+      coalesceKey: `inspection_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: newInspection,
+    });
   }
 
-  async function addContact(id: string, type: 'phone' | 'email') {
-    const inspection = inspections.find(i => i.id === id);
-    if (!inspection) return;
+  flushSyncQueue();
+}
 
-    const contactId = Date.now().toString();
+async function addContact(id: string, type: 'phone' | 'email') {
+  const inspection = inspections.find(i => i.id === id);
+  if (!inspection) return;
 
+  const contactId = Date.now().toString();
+
+  const updated = inspections.map(i =>
+    i.id === id
+      ? {
+          ...i,
+          contacts: [
+            ...i.contacts,
+            { id: contactId, type, value: '' },
+          ],
+        }
+      : i
+  );
+
+  setInspections(updated);
+  prevRef.current = updated;
+
+  await AsyncStorage.setItem(
+    'inspections_v1',
+    JSON.stringify(updated)
+  );
+
+  const inspectionToSync = updated.find(i => i.id === id);
+  if (!inspectionToSync) return;
+
+  try {
     await apiFetch('/api/inspections', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: inspection.name,
-        contacts: [
-          ...inspection.contacts,
-          { id: contactId, type, value: '' },
-        ],
-      }),
+      body: JSON.stringify(inspectionToSync),
     });
-
-    await load();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'inspection_upsert',
+      coalesceKey: `inspection_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: inspectionToSync,
+    });
   }
+
+  flushSyncQueue();
+}
 
   function updateContact(
     inspectionId: string,
@@ -144,10 +196,22 @@ export default function InspectionsScreen() {
         );
         if (!inspection) return;
 
-        await apiFetch('/api/inspections', {
-          method: 'POST',
-          body: JSON.stringify(inspection),
-        });
+try {
+  await apiFetch('/api/inspections', {
+    method: 'POST',
+    body: JSON.stringify(inspection),
+  });
+} catch {
+  await enqueueSync({
+    id: makeId(),
+    type: 'inspection_upsert',
+    coalesceKey: `inspection_upsert:${inspection.id}`,
+    createdAt: nowIso(),
+    payload: inspection,
+  });
+}
+
+flushSyncQueue();
 
         await AsyncStorage.setItem(
           'inspections_v1',

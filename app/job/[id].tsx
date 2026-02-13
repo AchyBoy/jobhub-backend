@@ -50,23 +50,50 @@ async function loadCrews() {
 }
 
 async function loadDefaults() {
+  const storageKey = `job:${id}:defaults`;
+
+  // 1️⃣ Load local first (instant UI)
+  const local = await AsyncStorage.getItem(storageKey);
+  if (local) {
+    const parsed = JSON.parse(local);
+
+    setJobSupervisors(parsed.supervisors ?? []);
+    setJobContractor(parsed.contractor ?? null);
+    setJobVendor(parsed.vendor ?? null);
+    setJobPermitCompany(parsed.permitCompany ?? null);
+    setJobInspectionCompany(parsed.inspection ?? null);
+  }
+
+  // 2️⃣ Attempt API refresh
   try {
     const supRes = await apiFetch(`/api/jobs/${id}/supervisors`);
-    setJobSupervisors(supRes.supervisors ?? []);
-
     const conRes = await apiFetch(`/api/jobs/${id}/contractor`);
-    setJobContractor(conRes.contractor ?? null);
-
     const venRes = await apiFetch(`/api/jobs/${id}/vendor`);
-    setJobVendor(venRes.vendor ?? null);
+    const permitRes = await apiFetch(`/api/jobs/${id}/permit-company`);
+    const inspectionRes = await apiFetch(`/api/jobs/${id}/inspection`);
 
- const permitRes = await apiFetch(`/api/jobs/${id}/permit-company`);
-setJobPermitCompany(permitRes.permitCompany ?? null);
+    const updated = {
+      supervisors: supRes.supervisors ?? [],
+      contractor: conRes.contractor ?? null,
+      vendor: venRes.vendor ?? null,
+      permitCompany: permitRes.permitCompany ?? null,
+      inspection: inspectionRes.inspection ?? null,
+    };
 
-const inspectionRes = await apiFetch(`/api/jobs/${id}/inspection`);
-setJobInspectionCompany(inspectionRes.inspection ?? null);
+    setJobSupervisors(updated.supervisors);
+    setJobContractor(updated.contractor);
+    setJobVendor(updated.vendor);
+    setJobPermitCompany(updated.permitCompany);
+    setJobInspectionCompany(updated.inspection);
 
-  } catch {}
+    await AsyncStorage.setItem(
+      storageKey,
+      JSON.stringify(updated)
+    );
+
+  } catch {
+    // silent fail — offline mode
+  }
 }
 
 async function loadPhases() {

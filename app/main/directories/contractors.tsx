@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
   id: string;
@@ -63,44 +64,107 @@ export default function ContractorsScreen() {
     }
   }
 
-  async function addContractor() {
-    if (!newName.trim()) return;
+async function addContractor() {
+  if (!newName.trim()) return;
 
-    const id = Date.now().toString();
+  const id = Date.now().toString();
 
+  const newContractor: Contractor = {
+    id,
+    name: newName.trim(),
+    contacts: [],
+  };
+
+  const updated = [newContractor, ...contractors];
+
+  // 1️⃣ Immediate UI
+  setContractors(updated);
+  prevRef.current = updated;
+  setNewName('');
+
+  // 2️⃣ Persist locally
+  await AsyncStorage.setItem(
+    'contractors_v1',
+    JSON.stringify(updated)
+  );
+
+  // 3️⃣ Attempt backend
+  try {
     await apiFetch('/api/contractors', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: newName.trim(),
-        contacts: [],
-      }),
+      body: JSON.stringify(newContractor),
     });
-
-    setNewName('');
-    await load();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'contractor_upsert',
+      coalesceKey: `contractor_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: newContractor,
+    });
   }
 
-  async function addContact(id: string, type: 'phone' | 'email') {
-    const contractor = contractors.find(c => c.id === id);
-    if (!contractor) return;
+  flushSyncQueue();
+}
 
-    const contactId = Date.now().toString();
+async function addContact(id: string, type: 'phone' | 'email') {
+  const contractor = contractors.find(c => c.id === id);
+  if (!contractor) return;
 
-    await apiFetch('/api/contractors', {
-      method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: contractor.name,
-        contacts: [
-          ...contractor.contacts,
-          { id: contactId, type, value: '' },
-        ],
-      }),
+  const contactId = Date.now().toString();
+
+  const updated = contractors.map(c =>
+    c.id === id
+      ? {
+          ...c,
+          contacts: [
+            ...c.contacts,
+            { id: contactId, type, value: '' },
+          ],
+        }
+      : c
+  );
+
+  setContractors(updated);
+  prevRef.current = updated;
+
+  await AsyncStorage.setItem(
+    'contractors_v1',
+    JSON.stringify(updated)
+  );
+
+  const contractorToSync = updated.find(c => c.id === id);
+  if (!contractorToSync) return;
+
+  try {
+try {
+  await apiFetch('/api/contractors', {
+    method: 'POST',
+    body: JSON.stringify(contractor),
+  });
+} catch {
+  await enqueueSync({
+    id: makeId(),
+    type: 'contractor_upsert',
+    coalesceKey: `contractor_upsert:${contractor.id}`,
+    createdAt: nowIso(),
+    payload: contractor,
+  });
+}
+
+flushSyncQueue();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'contractor_upsert',
+      coalesceKey: `contractor_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: contractorToSync,
     });
-
-    await load();
   }
+
+  flushSyncQueue();
+}
 
   function updateContact(
     contractorId: string,

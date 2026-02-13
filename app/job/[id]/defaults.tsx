@@ -12,6 +12,7 @@ import { useLocalSearchParams, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 export default function JobDefaultsScreen() {
   const { id } = useLocalSearchParams();
@@ -65,69 +66,178 @@ setInspectionCompanies(inspectionRes.inspections ?? []);
   }
 }
 
-  async function toggleSupervisor(supervisorId: string) {
-    let updated: string[];
+async function persistLocalDefaults(update: any) {
+  const storageKey = `job:${id}:defaults`;
 
-    if (selectedSupervisors.includes(supervisorId)) {
-      updated = selectedSupervisors.filter(
-        s => s !== supervisorId
-      );
-    } else {
-      updated = [...selectedSupervisors, supervisorId];
-    }
+  const existingRaw = await AsyncStorage.getItem(storageKey);
+  const existing = existingRaw ? JSON.parse(existingRaw) : {};
 
-    setSelectedSupervisors(updated);
+  const merged = { ...existing, ...update };
 
+  await AsyncStorage.setItem(
+    storageKey,
+    JSON.stringify(merged)
+  );
+}
+
+async function toggleSupervisor(supervisorId: string) {
+  let updated: string[];
+
+  if (selectedSupervisors.includes(supervisorId)) {
+    updated = selectedSupervisors.filter(
+      s => s !== supervisorId
+    );
+  } else {
+    updated = [...selectedSupervisors, supervisorId];
+  }
+
+  setSelectedSupervisors(updated);
+
+  await persistLocalDefaults({
+    supervisors: updated,
+  });
+
+  try {
     await apiFetch(`/api/jobs/${id}/supervisors`, {
       method: 'POST',
       body: JSON.stringify({
         supervisorIds: updated,
       }),
     });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'job_supervisors_set',
+      coalesceKey: `job_supervisors_set:${id}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId: id,
+        supervisorIds: updated,
+      },
+    });
   }
+
+  await flushSyncQueue();
+}
 
 async function selectContractor(contractorId: string) {
   setSelectedContractor(contractorId);
 
-  await apiFetch(`/api/jobs/${id}/contractor`, {
-    method: 'POST',
-    body: JSON.stringify({
-      contractorId,
-    }),
+  await persistLocalDefaults({
+    contractor: { id: contractorId },
   });
+
+  try {
+    await apiFetch(`/api/jobs/${id}/contractor`, {
+      method: 'POST',
+      body: JSON.stringify({
+        contractorId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'job_contractor_set',
+      coalesceKey: `job_contractor_set:${id}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId: id,
+        contractorId,
+      },
+    });
+  }
+
+  await flushSyncQueue();
 }
 
 async function selectVendor(vendorId: string) {
   setSelectedVendor(vendorId);
 
-  await apiFetch(`/api/jobs/${id}/vendor`, {
-    method: 'POST',
-    body: JSON.stringify({
-      vendorId,
-    }),
+  await persistLocalDefaults({
+    vendor: { id: vendorId },
   });
+
+  try {
+    await apiFetch(`/api/jobs/${id}/vendor`, {
+      method: 'POST',
+      body: JSON.stringify({
+        vendorId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'job_vendor_set',
+      coalesceKey: `job_vendor_set:${id}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId: id,
+        vendorId,
+      },
+    });
+  }
+
+  await flushSyncQueue();
 }
 
 async function selectPermitCompany(permitCompanyId: string) {
   setSelectedPermitCompany(permitCompanyId);
 
-  await apiFetch(`/api/jobs/${id}/permit-company`, {
-    method: 'POST',
-    body: JSON.stringify({
-      permitCompanyId,
-    }),
+  await persistLocalDefaults({
+    permitCompany: { id: permitCompanyId },
   });
+
+  try {
+    await apiFetch(`/api/jobs/${id}/permit-company`, {
+      method: 'POST',
+      body: JSON.stringify({
+        permitCompanyId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'job_permit_company_set',
+      coalesceKey: `job_permit_company_set:${id}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId: id,
+        permitCompanyId,
+      },
+    });
+  }
+
+  await flushSyncQueue();
 }
 
 async function selectInspectionCompany(inspectionCompanyId: string) {
   setSelectedInspectionCompany(inspectionCompanyId);
 
-  await apiFetch(`/api/jobs/${id}/inspection`, {
-    method: 'POST',
-    body: JSON.stringify({
-      inspectionId: inspectionCompanyId,
-    }),
+  await persistLocalDefaults({
+    inspection: { id: inspectionCompanyId },
   });
+
+  try {
+    await apiFetch(`/api/jobs/${id}/inspection`, {
+      method: 'POST',
+      body: JSON.stringify({
+        inspectionId: inspectionCompanyId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'job_inspection_set',
+      coalesceKey: `job_inspection_set:${id}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId: id,
+        inspectionId: inspectionCompanyId,
+      },
+    });
+  }
+
+  await flushSyncQueue();
 }
 
   return (

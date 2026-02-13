@@ -11,6 +11,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
   id: string;
@@ -62,44 +63,107 @@ export default function VendorsScreen() {
     }
   }
 
-  async function addVendor() {
-    if (!newName.trim()) return;
+async function addVendor() {
+  if (!newName.trim()) return;
 
-    const id = Date.now().toString();
+  const id = Date.now().toString();
 
+  const newVendor: Vendor = {
+    id,
+    name: newName.trim(),
+    contacts: [],
+  };
+
+  const updated = [newVendor, ...vendors];
+
+  // 1️⃣ Immediate UI
+  setVendors(updated);
+  prevRef.current = updated;
+  setNewName('');
+
+  // 2️⃣ Persist locally
+  await AsyncStorage.setItem(
+    'vendors_v1',
+    JSON.stringify(updated)
+  );
+
+  // 3️⃣ Attempt backend
+  try {
     await apiFetch('/api/vendors', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: newName.trim(),
-        contacts: [],
-      }),
+      body: JSON.stringify(newVendor),
     });
-
-    setNewName('');
-    await load();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'vendor_upsert',
+      coalesceKey: `vendor_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: newVendor,
+    });
   }
 
-  async function addContact(id: string, type: 'phone' | 'email') {
-    const vendor = vendors.find(v => v.id === id);
-    if (!vendor) return;
+  flushSyncQueue();
+}
 
-    const contactId = Date.now().toString();
+async function addContact(id: string, type: 'phone' | 'email') {
+  const vendor = vendors.find(v => v.id === id);
+  if (!vendor) return;
 
-    await apiFetch('/api/vendors', {
-      method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: vendor.name,
-        contacts: [
-          ...vendor.contacts,
-          { id: contactId, type, value: '' },
-        ],
-      }),
+  const contactId = Date.now().toString();
+
+  const updated = vendors.map(v =>
+    v.id === id
+      ? {
+          ...v,
+          contacts: [
+            ...v.contacts,
+            { id: contactId, type, value: '' },
+          ],
+        }
+      : v
+  );
+
+  setVendors(updated);
+  prevRef.current = updated;
+
+  await AsyncStorage.setItem(
+    'vendors_v1',
+    JSON.stringify(updated)
+  );
+
+  const vendorToSync = updated.find(v => v.id === id);
+  if (!vendorToSync) return;
+
+  try {
+try {
+  await apiFetch('/api/vendors', {
+    method: 'POST',
+    body: JSON.stringify(vendor),
+  });
+} catch {
+  await enqueueSync({
+    id: makeId(),
+    type: 'vendor_upsert',
+    coalesceKey: `vendor_upsert:${vendor.id}`,
+    createdAt: nowIso(),
+    payload: vendor,
+  });
+}
+
+flushSyncQueue();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'vendor_upsert',
+      coalesceKey: `vendor_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: vendorToSync,
     });
-
-    await load();
   }
+
+  flushSyncQueue();
+}
 
   function updateContact(
     vendorId: string,

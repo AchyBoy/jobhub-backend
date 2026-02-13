@@ -7,16 +7,93 @@ type SyncItem =
   | {
       id: string;
       type: 'crew_assignment';
-      coalesceKey: string; // used to dedupe
+      coalesceKey: string;
       createdAt: string;
       payload: { jobId: string; crewId: string; phase: string };
     }
+    | {
+    id: string;
+    type: 'vendor_upsert';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { id: string; name: string; contacts: any[] };
+  }
+  | {
+    id: string;
+    type: 'inspection_upsert';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { id: string; name: string; contacts: any[] };
+  }
+    | {
+    id: string;
+    type: 'contractor_upsert';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { id: string; name: string; contacts: any[] };
+  }
   | {
       id: string;
       type: 'job_notes_sync';
-      coalesceKey: string; // one pending sync per job
+      coalesceKey: string;
       createdAt: string;
       payload: { jobId: string; notes: any[] };
+    }
+  | {
+      id: string;
+      type: 'job_supervisors_set';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string; supervisorIds: string[] };
+    }
+  | {
+      id: string;
+      type: 'job_contractor_set';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string; contractorId: string };
+    }
+  | {
+      id: string;
+      type: 'job_vendor_set';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string; vendorId: string };
+    }
+  | {
+      id: string;
+      type: 'job_permit_company_set';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string; permitCompanyId: string };
+    }
+  | {
+      id: string;
+      type: 'job_inspection_set';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string; inspectionId: string };
+    }
+  | {
+      id: string;
+      type: 'permit_company_upsert';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { id: string; name: string; contacts: any[] };
+    }
+  | {
+      id: string;
+      type: 'supervisor_upsert';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { id: string; name: string; contacts: any[] };
+    }
+  | {
+      id: string;
+      type: 'crew_upsert';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { id: string; name: string; contacts: any[] };
     };
 
 const QUEUE_KEY = 'sync_queue_v1';
@@ -79,11 +156,93 @@ export async function flushSyncQueue() {
         });
       }
 
+      if (item.type === 'vendor_upsert') {
+  await apiFetch('/api/vendors', {
+    method: 'POST',
+    body: JSON.stringify(item.payload),
+  });
+}
+
       if (item.type === 'job_notes_sync') {
         const { jobId, notes } = item.payload;
         await apiFetch(`/api/job/${jobId}/notes`, {
           method: 'POST',
           body: JSON.stringify({ notes }),
+        });
+      }
+
+            if (item.type === 'permit_company_upsert') {
+        await apiFetch('/api/permit-companies', {
+          method: 'POST',
+          body: JSON.stringify(item.payload),
+        });
+      }
+
+            if (item.type === 'job_supervisors_set') {
+        const { jobId, supervisorIds } = item.payload;
+        await apiFetch(`/api/jobs/${jobId}/supervisors`, {
+          method: 'POST',
+          body: JSON.stringify({ supervisorIds }),
+        });
+      }
+
+      if (item.type === 'inspection_upsert') {
+  await apiFetch('/api/inspections', {
+    method: 'POST',
+    body: JSON.stringify(item.payload),
+  });
+}
+
+      if (item.type === 'job_contractor_set') {
+        const { jobId, contractorId } = item.payload;
+        await apiFetch(`/api/jobs/${jobId}/contractor`, {
+          method: 'POST',
+          body: JSON.stringify({ contractorId }),
+        });
+      }
+
+      if (item.type === 'contractor_upsert') {
+  await apiFetch('/api/contractors', {
+    method: 'POST',
+    body: JSON.stringify(item.payload),
+  });
+}
+
+      if (item.type === 'job_vendor_set') {
+        const { jobId, vendorId } = item.payload;
+        await apiFetch(`/api/jobs/${jobId}/vendor`, {
+          method: 'POST',
+          body: JSON.stringify({ vendorId }),
+        });
+      }
+
+      if (item.type === 'job_permit_company_set') {
+        const { jobId, permitCompanyId } = item.payload;
+        await apiFetch(`/api/jobs/${jobId}/permit-company`, {
+          method: 'POST',
+          body: JSON.stringify({ permitCompanyId }),
+        });
+      }
+
+      if (item.type === 'job_inspection_set') {
+        const { jobId, inspectionId } = item.payload;
+        await apiFetch(`/api/jobs/${jobId}/inspection`, {
+          method: 'POST',
+          body: JSON.stringify({ inspectionId }),
+        });
+      }
+
+      if (item.type === 'supervisor_upsert') {
+        await apiFetch('/api/supervisors', {
+          method: 'POST',
+          body: JSON.stringify(item.payload),
+        });
+      }
+
+      if (item.type === 'crew_upsert') {
+        await apiFetch('/api/crews', {
+          method: 'POST',
+          body: JSON.stringify(item.payload),
         });
       }
     } catch (err) {

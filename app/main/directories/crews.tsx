@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
   id: string;
@@ -72,54 +73,57 @@ async function addCrew() {
 
   const id = Date.now().toString();
 
+  const newCrew: Crew = {
+    id,
+    name: newCrewName.trim(),
+    contacts: [],
+  };
+
+  const updated = [newCrew, ...crews];
+
+  // 🔥 Instant UI
+  setCrews(updated);
+  prevCrewsRef.current = updated;
+  setNewCrewName('');
+
+  // 🔁 Persist locally
+  AsyncStorage.setItem(
+    'crews_v1',
+    JSON.stringify(updated)
+  );
+
   try {
     await apiFetch('/api/crews', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: newCrewName.trim(),
-        contacts: [],
-      }),
+      body: JSON.stringify(newCrew),
     });
-
-    setNewCrewName('');
-    // Optimistic UI update
-const newCrew: Crew = {
-  id,
-  name: newCrewName.trim(),
-  contacts: [],
-};
-
-const updated = [newCrew, ...crews];
-
-setCrews(updated);
-prevCrewsRef.current = updated;
-
-await AsyncStorage.setItem(
-  'crews_v1',
-  JSON.stringify(updated)
-);
-
-await loadCrews(); // refresh if backend available
-  } catch (err) {
-    console.warn('Failed to save crew', err);
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'crew_upsert',
+      coalesceKey: `crew_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: newCrew,
+    });
   }
+
+  flushSyncQueue();
 }
 
-async function addContact(
+function addContact(
   crewId: string,
   type: 'phone' | 'email'
 ) {
   const contactId = Date.now().toString();
 
-  try {
-    await apiFetch('/api/crews', {
-      method: 'POST',
-      body: JSON.stringify({
-        id: crewId,
-        name: crews.find(c => c.id === crewId)?.name,
+  setCrews(prev => {
+    const updated = prev.map(c => {
+      if (c.id !== crewId) return c;
+
+      return {
+        ...c,
         contacts: [
-          ...(crews.find(c => c.id === crewId)?.contacts ?? []),
+          ...c.contacts,
           {
             id: contactId,
             type,
@@ -127,13 +131,40 @@ async function addContact(
             value: '',
           },
         ],
-      }),
+      };
     });
 
-    await loadCrews();
-  } catch (err) {
-    console.warn('Failed to add contact', err);
-  }
+    const changed = updated.find(c => c.id === crewId);
+    if (!changed) return prev;
+
+    prevCrewsRef.current = updated;
+
+    AsyncStorage.setItem(
+      'crews_v1',
+      JSON.stringify(updated)
+    );
+
+    (async () => {
+      try {
+        await apiFetch('/api/crews', {
+          method: 'POST',
+          body: JSON.stringify(changed),
+        });
+      } catch {
+        await enqueueSync({
+          id: makeId(),
+          type: 'crew_upsert',
+          coalesceKey: `crew_upsert:${changed.id}`,
+          createdAt: nowIso(),
+          payload: changed,
+        });
+      }
+
+      flushSyncQueue();
+    })();
+
+    return updated;
+  });
 }
 
 function updateContact(
@@ -207,9 +238,15 @@ await AsyncStorage.setItem(
           return rest;
         });
       }, 1500);
-    } catch (err) {
-      console.warn('Autosave failed', err);
-    }
+} catch {
+  await enqueueSync({
+    id: makeId(),
+    type: 'crew_upsert',
+    coalesceKey: `crew_upsert:${crew.id}`,
+    createdAt: nowIso(),
+    payload: crew,
+  });
+}
   }, 600); // 600ms debounce
 }
 

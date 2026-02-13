@@ -76,46 +76,30 @@ async function load() {
   );
 }
 
-async function syncSupervisorsToBackend(updated: Supervisor[]) {
-  for (const supervisor of updated) {
-    try {
-      await apiFetch('/api/supervisors', {
-        method: 'POST',
-        body: JSON.stringify({
-          id: supervisor.id,
-          name: supervisor.name,
-          contacts: supervisor.contacts ?? [],
-        }),
-      });
-    } catch (err) {
-      console.warn('Supervisor sync failed — queued', err);
-
-      await enqueueSync({
-        id: makeId(),
-        type: 'supervisor_upsert',
-        coalesceKey: `supervisor_upsert:${supervisor.id}`,
-        createdAt: nowIso(),
-        payload: {
-          id: supervisor.id,
-          name: supervisor.name,
-          contacts: supervisor.contacts ?? [],
-        },
-      });
-    }
-  }
-
-  await flushSyncQueue();
-}
-
-async function save(updated: Supervisor[]) {
+async function save(updated: Supervisor[], changed: Supervisor) {
   setSupervisors(updated);
 
-  await AsyncStorage.setItem(
+  AsyncStorage.setItem(
     'supervisors_v1',
     JSON.stringify(updated)
   );
 
-  await syncSupervisorsToBackend(updated);
+  try {
+    await apiFetch('/api/supervisors', {
+      method: 'POST',
+      body: JSON.stringify(changed),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'supervisor_upsert',
+      coalesceKey: `supervisor_upsert:${changed.id}`,
+      createdAt: nowIso(),
+      payload: changed,
+    });
+  }
+
+  flushSyncQueue();
 }
 
 function updateContact(
@@ -135,12 +119,32 @@ function updateContact(
       };
     });
 
+    const changed = updated.find(s => s.id === supervisorId);
+    if (!changed) return prev;
+
     AsyncStorage.setItem(
       'supervisors_v1',
       JSON.stringify(updated)
     );
 
-    syncSupervisorsToBackend(updated);
+    (async () => {
+      try {
+        await apiFetch('/api/supervisors', {
+          method: 'POST',
+          body: JSON.stringify(changed),
+        });
+      } catch {
+        await enqueueSync({
+          id: makeId(),
+          type: 'supervisor_upsert',
+          coalesceKey: `supervisor_upsert:${changed.id}`,
+          createdAt: nowIso(),
+          payload: changed,
+        });
+      }
+
+      flushSyncQueue();
+    })();
 
     return updated;
   });
@@ -170,12 +174,32 @@ function addContact(
       };
     });
 
+    const changed = updated.find(s => s.id === supervisorId);
+    if (!changed) return prev;
+
     AsyncStorage.setItem(
       'supervisors_v1',
       JSON.stringify(updated)
     );
 
-    syncSupervisorsToBackend(updated);
+    (async () => {
+      try {
+        await apiFetch('/api/supervisors', {
+          method: 'POST',
+          body: JSON.stringify(changed),
+        });
+      } catch {
+        await enqueueSync({
+          id: makeId(),
+          type: 'supervisor_upsert',
+          coalesceKey: `supervisor_upsert:${changed.id}`,
+          createdAt: nowIso(),
+          payload: changed,
+        });
+      }
+
+      flushSyncQueue();
+    })();
 
     return updated;
   });
@@ -191,8 +215,8 @@ contacts: [],
       createdAt: new Date().toISOString(),
     };
 
-    const updated = [newSupervisor, ...supervisors];
-    await save(updated);
+const updated = [newSupervisor, ...supervisors];
+await save(updated, newSupervisor);
 
 setName('');
   }

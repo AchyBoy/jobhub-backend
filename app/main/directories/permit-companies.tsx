@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
   id: string;
@@ -63,44 +64,96 @@ export default function PermitCompaniesScreen() {
     }
   }
 
-  async function addCompany() {
-    if (!newName.trim()) return;
+async function addCompany() {
+  if (!newName.trim()) return;
 
-    const id = Date.now().toString();
+  const id = Date.now().toString();
 
+  const newCompany: PermitCompany = {
+    id,
+    name: newName.trim(),
+    contacts: [],
+  };
+
+  const updated = [newCompany, ...companies];
+
+  // 1️⃣ Immediate UI update
+  setCompanies(updated);
+  prevRef.current = updated;
+  setNewName('');
+
+  // 2️⃣ Persist locally immediately
+  AsyncStorage.setItem(
+    'permit_companies_v1',
+    JSON.stringify(updated)
+  );
+
+  // 3️⃣ Try backend (non-blocking)
+  try {
     await apiFetch('/api/permit-companies', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: newName.trim(),
-        contacts: [],
-      }),
+      body: JSON.stringify(newCompany),
     });
-
-    setNewName('');
-    await load();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'permit_company_upsert',
+      coalesceKey: `permit_company_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: newCompany,
+    });
   }
 
-  async function addContact(id: string, type: 'phone' | 'email') {
-    const company = companies.find(c => c.id === id);
-    if (!company) return;
+  flushSyncQueue();
+}
 
-    const contactId = Date.now().toString();
+async function addContact(id: string, type: 'phone' | 'email') {
+  const company = companies.find(c => c.id === id);
+  if (!company) return;
 
+  const contactId = Date.now().toString();
+
+  const updated = companies.map(c =>
+    c.id === id
+      ? {
+          ...c,
+          contacts: [
+            ...c.contacts,
+            { id: contactId, type, value: '' },
+          ],
+        }
+      : c
+  );
+
+  // Immediate UI update
+  setCompanies(updated);
+  prevRef.current = updated;
+
+  AsyncStorage.setItem(
+    'permit_companies_v1',
+    JSON.stringify(updated)
+  );
+
+  const companyToSync = updated.find(c => c.id === id);
+if (!companyToSync) return;
+
+  try {
     await apiFetch('/api/permit-companies', {
       method: 'POST',
-      body: JSON.stringify({
-        id,
-        name: company.name,
-        contacts: [
-          ...company.contacts,
-          { id: contactId, type, value: '' },
-        ],
-      }),
+      body: JSON.stringify(companyToSync),
     });
-
-    await load();
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'permit_company_upsert',
+      coalesceKey: `permit_company_upsert:${id}`,
+      createdAt: nowIso(),
+      payload: companyToSync,
+    });
   }
+
+  flushSyncQueue();
+}
 
   function updateContact(
     companyId: string,
@@ -145,15 +198,27 @@ export default function PermitCompaniesScreen() {
         );
         if (!company) return;
 
-        await apiFetch('/api/permit-companies', {
-          method: 'POST',
-          body: JSON.stringify(company),
-        });
+AsyncStorage.setItem(
+  'permit_companies_v1',
+  JSON.stringify(prevRef.current)
+);
 
-        await AsyncStorage.setItem(
-          'permit_companies_v1',
-          JSON.stringify(prevRef.current)
-        );
+try {
+  await apiFetch('/api/permit-companies', {
+    method: 'POST',
+    body: JSON.stringify(company),
+  });
+} catch {
+  await enqueueSync({
+    id: makeId(),
+    type: 'permit_company_upsert',
+    coalesceKey: `permit_company_upsert:${company.id}`,
+    createdAt: nowIso(),
+    payload: company,
+  });
+}
+
+flushSyncQueue();
 
         setSaveState(prev => ({
           ...prev,
