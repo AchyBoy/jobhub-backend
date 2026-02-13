@@ -7,7 +7,7 @@ import {
   Pressable,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
@@ -90,8 +90,11 @@ export default function SchedulingScreen() {
     } catch {}
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
+    return (
+    <>
+      <Stack.Screen options={{ title: 'Scheduling' }} />
+
+      <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Scheduling</Text>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
@@ -139,6 +142,7 @@ export default function SchedulingScreen() {
         })}
       </ScrollView>
     </SafeAreaView>
+    </>
   );
 }
 

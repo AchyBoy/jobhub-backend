@@ -1,5 +1,6 @@
 //JobHub/app/job/[id]/notes.tsx
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 import * as Linking from 'expo-linking';
 
@@ -12,7 +13,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -116,7 +117,22 @@ await apiFetch(`/api/job/${jobId}/notes`, {
   body: JSON.stringify({ notes: payload }),
 });
   } catch (err) {
-    console.warn('Failed to sync notes to backend', err);
+    console.warn('Failed to sync notes to backend — queued for retry', err);
+
+    // Queue latest full note payload (coalesced per job)
+    await enqueueSync({
+      id: makeId(),
+      type: 'job_notes_sync',
+      coalesceKey: `job_notes_sync:${jobId}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId,
+        notes: payload,
+      },
+    });
+
+    // Try immediately (if offline it stays queued)
+    await flushSyncQueue();
   }
 }
 
@@ -432,6 +448,8 @@ async function changeNotePhase(noteId: string, newPhase: string) {
 }
 
   return (
+    <>
+  <Stack.Screen options={{ title: 'Notes' }} />
 
 <SafeAreaView
   style={styles.container}
@@ -714,6 +732,7 @@ async function changeNotePhase(noteId: string, newPhase: string) {
 
 </ScrollView>
 </SafeAreaView>
+</>
   );
 }
 

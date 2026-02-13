@@ -1,8 +1,10 @@
+//JobHub/components/crew/CrewManager.tsx
 import { View, Text, Pressable } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 type Crew = {
+  id?: string;
   name: string;
   email: string;
 };
@@ -22,7 +24,7 @@ useEffect(() => {
 }, [jobId]);
 
 async function loadCrews() {
-  const stored = await AsyncStorage.getItem(`job:${jobId}:crews`);
+  const stored = await AsyncStorage.getItem('crews_v1');
   if (!stored) return;
   setCrews(JSON.parse(stored));
 }
@@ -41,7 +43,7 @@ async function loadCrews() {
 
       {crews.map(crew => (
         <Pressable
-          key={crew.email}
+          key={crew.id ?? crew.email ?? JSON.stringify(crew)}
           onPress={() => onSelect(crew)}
           style={{ paddingVertical: 6 }}
         >

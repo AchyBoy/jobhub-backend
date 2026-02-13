@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
@@ -27,6 +28,7 @@ useEffect(() => {
   loadCrews();
   loadPhases();
   loadAssignments();
+  flushSyncQueue();
 }, [id]);
 
 async function loadCrews() {
@@ -81,12 +83,20 @@ async function assignCrew(crewId: string, phase: string) {
     JSON.stringify(updated)
   );
 
-  try {
-    await apiFetch(`/api/jobs/${id}/crews`, {
-      method: 'POST',
-      body: JSON.stringify({ crewId, phase }),
-    });
-  } catch {}
+  await enqueueSync({
+    id: makeId(),
+    type: 'crew_assignment',
+    coalesceKey: `crew_assignment:${id}:${crewId}:${phase}`,
+    createdAt: nowIso(),
+    payload: {
+      jobId: id as string,
+      crewId,
+      phase,
+    },
+  });
+
+  // attempt immediately (and loop will keep retrying if it fails)
+  await flushSyncQueue();
 }
 
   return (

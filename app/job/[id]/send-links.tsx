@@ -4,7 +4,7 @@ import * as Clipboard from 'expo-clipboard';
 import * as Linking from 'expo-linking';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -74,7 +74,10 @@ function sendCrewLink() {
 }
 
   return (
-  <SafeAreaView style={styles.container}>
+    <>
+      <Stack.Screen options={{ title: 'Send Links' }} />
+
+      <SafeAreaView style={styles.container}>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <Text style={styles.title}>Send Crew Link</Text>
@@ -165,6 +168,7 @@ function sendCrewLink() {
 />
       </ScrollView>
     </SafeAreaView>
+    </>
   );
 }
 
