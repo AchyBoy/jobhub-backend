@@ -14,6 +14,7 @@ const { id, name } = useLocalSearchParams();
 const router = useRouter();
 const [jobSupervisors, setJobSupervisors] = useState<any[]>([]);
 const [jobContractor, setJobContractor] = useState<any | null>(null);
+const [jobVendor, setJobVendor] = useState<any | null>(null);
 
 const [detailsExpanded, setDetailsExpanded] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
@@ -53,6 +54,9 @@ async function loadDefaults() {
 
     const conRes = await apiFetch(`/api/jobs/${id}/contractor`);
     setJobContractor(conRes.contractor ?? null);
+
+    const venRes = await apiFetch(`/api/jobs/${id}/vendor`);
+    setJobVendor(venRes.vendor ?? null);
   } catch {}
 }
 
@@ -161,6 +165,12 @@ async function assignCrew(crewId: string, phase: string) {
 
 <Text style={styles.detailValue}>
   {jobContractor?.name ?? "Not Assigned"}
+</Text>
+
+<Text style={styles.detailLabel}>Vendor</Text>
+
+<Text style={styles.detailValue}>
+  {jobVendor?.name ?? "Not Assigned"}
 </Text>
 
           <Text style={styles.detailLabel}>Inspector</Text>

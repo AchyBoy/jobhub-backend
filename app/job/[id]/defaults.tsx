@@ -18,28 +18,36 @@ export default function JobDefaultsScreen() {
 
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [contractors, setContractors] = useState<any[]>([]);
+const [vendors, setVendors] = useState<any[]>([]);
 
   const [selectedSupervisors, setSelectedSupervisors] =
     useState<string[]>([]);
-  const [selectedContractor, setSelectedContractor] =
-    useState<string | null>(null);
+const [selectedContractor, setSelectedContractor] =
+  useState<string | null>(null);
+
+const [selectedVendor, setSelectedVendor] =
+  useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     load();
   }, [id]);
 
-  async function load() {
-    try {
-      const supRes = await apiFetch('/api/supervisors');
-      setSupervisors(supRes.supervisors ?? []);
+async function load() {
+  try {
+    const supRes = await apiFetch('/api/supervisors');
+    setSupervisors(supRes.supervisors ?? []);
 
-      const conRes = await apiFetch('/api/contractors');
-      setContractors(conRes.contractors ?? []);
-    } catch {
-      console.warn('Failed to load defaults');
-    }
+    const conRes = await apiFetch('/api/contractors');
+    setContractors(conRes.contractors ?? []);
+
+    const venRes = await apiFetch('/api/vendors');
+    setVendors(venRes.vendors ?? []);
+
+  } catch {
+    console.warn('Failed to load defaults');
   }
+}
 
   async function toggleSupervisor(supervisorId: string) {
     let updated: string[];
@@ -62,16 +70,27 @@ export default function JobDefaultsScreen() {
     });
   }
 
-  async function selectContractor(contractorId: string) {
-    setSelectedContractor(contractorId);
+async function selectContractor(contractorId: string) {
+  setSelectedContractor(contractorId);
 
-    await apiFetch(`/api/jobs/${id}/contractor`, {
-      method: 'POST',
-      body: JSON.stringify({
-        contractorId,
-      }),
-    });
-  }
+  await apiFetch(`/api/jobs/${id}/contractor`, {
+    method: 'POST',
+    body: JSON.stringify({
+      contractorId,
+    }),
+  });
+}
+
+async function selectVendor(vendorId: string) {
+  setSelectedVendor(vendorId);
+
+  await apiFetch(`/api/jobs/${id}/vendor`, {
+    method: 'POST',
+    body: JSON.stringify({
+      vendorId,
+    }),
+  });
+}
 
   return (
     <>
@@ -102,20 +121,39 @@ export default function JobDefaultsScreen() {
             Primary Contractor (Single)
           </Text>
 
-          {contractors.map(c => (
-            <Pressable
-              key={c.id}
-              onPress={() => selectContractor(c.id)}
-              style={styles.row}
-            >
-              <Text>
-                {selectedContractor === c.id
-                  ? '✓ '
-                  : '○ '}
-                {c.name}
-              </Text>
-            </Pressable>
-          ))}
+{contractors.map(c => (
+  <Pressable
+    key={c.id}
+    onPress={() => selectContractor(c.id)}
+    style={styles.row}
+  >
+    <Text>
+      {selectedContractor === c.id
+        ? '✓ '
+        : '○ '}
+      {c.name}
+    </Text>
+  </Pressable>
+))}
+
+<Text style={styles.section}>
+  Vendor (Single)
+</Text>
+
+{vendors.map(v => (
+  <Pressable
+    key={v.id}
+    onPress={() => selectVendor(v.id)}
+    style={styles.row}
+  >
+    <Text>
+      {selectedVendor === v.id
+        ? '✓ '
+        : '○ '}
+      {v.name}
+    </Text>
+  </Pressable>
+))}
         </ScrollView>
       </SafeAreaView>
     </>
