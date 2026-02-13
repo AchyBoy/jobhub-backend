@@ -26,6 +26,8 @@ import jobSupervisorsRoutes from "./routes/jobSupervisors";
 import supervisorsRoutes from "./routes/supervisors";
 import permitCompaniesRoutes from "./routes/permitCompanies";
 import jobPermitCompaniesRoutes from "./routes/jobPermitCompanies";
+import inspectionsRoutes from "./routes/inspections";
+import jobInspectionsRoutes from "./routes/jobInspections";
 // ⚠️ TEMP: Postgres connectivity check
 // DO NOT REMOVE until data migration is complete
 import { Client } from "pg";
@@ -66,6 +68,8 @@ app.use("/api/jobs", jobVendorsRoutes);
 app.use("/api/jobs", jobDefaultsRoutes);
 app.use("/api/permit-companies", permitCompaniesRoutes);
 app.use("/api/jobs", jobPermitCompaniesRoutes);
+app.use("/api/inspections", inspectionsRoutes);
+app.use("/api/jobs", jobInspectionsRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
 app.use("/api/phases", phasesRoutes);

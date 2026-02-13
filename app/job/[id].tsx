@@ -16,6 +16,7 @@ const [jobSupervisors, setJobSupervisors] = useState<any[]>([]);
 const [jobContractor, setJobContractor] = useState<any | null>(null);
 const [jobVendor, setJobVendor] = useState<any | null>(null);
 const [jobPermitCompany, setJobPermitCompany] = useState<any | null>(null);
+const [jobInspectionCompany, setJobInspectionCompany] = useState<any | null>(null);
 
 const [detailsExpanded, setDetailsExpanded] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
@@ -59,8 +60,11 @@ async function loadDefaults() {
     const venRes = await apiFetch(`/api/jobs/${id}/vendor`);
     setJobVendor(venRes.vendor ?? null);
 
-    const permitRes = await apiFetch(`/api/jobs/${id}/permit-company`);
-    setJobPermitCompany(permitRes.permitCompany ?? null);
+ const permitRes = await apiFetch(`/api/jobs/${id}/permit-company`);
+setJobPermitCompany(permitRes.permitCompany ?? null);
+
+const inspectionRes = await apiFetch(`/api/jobs/${id}/inspection`);
+setJobInspectionCompany(inspectionRes.inspection ?? null);
 
   } catch {}
 }
@@ -183,8 +187,11 @@ async function assignCrew(crewId: string, phase: string) {
   {jobVendor?.name ?? "Not Assigned"}
 </Text>
 
-          <Text style={styles.detailLabel}>Inspector</Text>
-          <Text style={styles.detailValue}>Not Assigned</Text>
+<Text style={styles.detailLabel}>Inspection Company</Text>
+
+<Text style={styles.detailValue}>
+  {jobInspectionCompany?.name ?? "Not Assigned"}
+</Text>
 
 <Text style={styles.detailLabel}>Permit Company</Text>
 

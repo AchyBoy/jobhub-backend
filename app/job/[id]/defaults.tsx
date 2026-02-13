@@ -32,6 +32,12 @@ const [selectedVendor, setSelectedVendor] =
 const [selectedPermitCompany, setSelectedPermitCompany] =
   useState<string | null>(null);
 
+const [inspectionCompanies, setInspectionCompanies] =
+  useState<any[]>([]);
+
+const [selectedInspectionCompany, setSelectedInspectionCompany] =
+  useState<string | null>(null);
+
   useEffect(() => {
     if (!id) return;
     load();
@@ -50,6 +56,9 @@ setVendors(venRes.vendors ?? []);
 
 const permitRes = await apiFetch('/api/permit-companies');
 setPermitCompanies(permitRes.permitCompanies ?? []);
+
+const inspectionRes = await apiFetch('/api/inspections');
+setInspectionCompanies(inspectionRes.inspections ?? []);
 
   } catch {
     console.warn('Failed to load defaults');
@@ -106,6 +115,17 @@ async function selectPermitCompany(permitCompanyId: string) {
     method: 'POST',
     body: JSON.stringify({
       permitCompanyId,
+    }),
+  });
+}
+
+async function selectInspectionCompany(inspectionCompanyId: string) {
+  setSelectedInspectionCompany(inspectionCompanyId);
+
+  await apiFetch(`/api/jobs/${id}/inspection`, {
+    method: 'POST',
+    body: JSON.stringify({
+      inspectionId: inspectionCompanyId,
     }),
   });
 }
@@ -188,6 +208,25 @@ async function selectPermitCompany(permitCompanyId: string) {
         ? '✓ '
         : '○ '}
       {p.name}
+    </Text>
+  </Pressable>
+))}
+
+<Text style={styles.section}>
+  Inspection Company (Single)
+</Text>
+
+{inspectionCompanies.map(i => (
+  <Pressable
+    key={i.id}
+    onPress={() => selectInspectionCompany(i.id)}
+    style={styles.row}
+  >
+    <Text>
+      {selectedInspectionCompany === i.id
+        ? '✓ '
+        : '○ '}
+      {i.name}
     </Text>
   </Pressable>
 ))}

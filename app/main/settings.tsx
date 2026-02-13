@@ -70,7 +70,7 @@ export default function SettingsScreen() {
 
 <Pressable
   style={[styles.item, { marginTop: 12 }]}
-  onPress={() => router.push('/main/directories/inspectors')}
+  onPress={() => router.push('/main/directories/inspections')}
 >
   <Text style={styles.itemText}>Inspectors</Text>
 </Pressable>
