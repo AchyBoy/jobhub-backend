@@ -6,6 +6,7 @@ import { apiFetch } from '../../src/lib/apiClient';
 import { supabase } from '../../src/lib/supabase';
 import { useEffect, useState } from 'react';
 import { useRouter, useFocusEffect } from 'expo-router';
+import React from 'react';
 
 type Job = {
   id: string;
@@ -29,45 +30,62 @@ async function loadJobs() {
 
   if (!session) return;
 
-  const userId = session.user.id;
-
   try {
-    // 1️⃣ Get tenant context
+    // 1️⃣ Get tenant first (needed for cache key)
     const me = await apiFetch('/api/tenant/me');
     const tenantId = me.tenantId;
-
     if (!tenantId) return;
 
     const cacheKey = `jobs:${tenantId}`;
 
-    // 2️⃣ Fetch backend (source of truth)
+    // 2️⃣ 🔥 Load cached jobs immediately (instant UI)
+    const cached = await AsyncStorage.getItem(cacheKey);
+    if (cached) {
+      setJobs(JSON.parse(cached));
+    }
+
+    // 3️⃣ Fetch backend in background
     const res = await apiFetch('/api/job');
 
-    setJobs(res.jobs);
+    setJobs(res.jobs ?? []);
 
-    // 3️⃣ Cache per-tenant
-    await AsyncStorage.setItem(cacheKey, JSON.stringify(res.jobs));
+    await AsyncStorage.setItem(
+      cacheKey,
+      JSON.stringify(res.jobs ?? [])
+    );
   } catch (err) {
-    console.warn('Backend unavailable — loading cached jobs');
+    console.warn('Using cached jobs (offline mode)');
+  }
+}
 
-    try {
-      const me = await apiFetch('/api/tenant/me');
-      const tenantId = me.tenantId;
-      if (!tenantId) return;
+async function refreshJobsSilently() {
+  try {
+    const me = await apiFetch('/api/tenant/me');
+    const tenantId = me.tenantId;
+    if (!tenantId) return;
 
-      const cacheKey = `jobs:${tenantId}`;
-      const cached = await AsyncStorage.getItem(cacheKey);
-      if (cached) {
-        setJobs(JSON.parse(cached));
-      }
-    } catch {}
+    const cacheKey = `jobs:${tenantId}`;
+
+    const res = await apiFetch('/api/job');
+
+    setJobs(res.jobs ?? []);
+
+    await AsyncStorage.setItem(
+      cacheKey,
+      JSON.stringify(res.jobs ?? [])
+    );
+  } catch {
+    // no UI change if it fails
   }
 }
 
   // Reload every time tab is focused
-  useFocusEffect(() => {
-    loadJobs();
-  });
+useFocusEffect(
+  React.useCallback(() => {
+    // Only refresh from backend silently
+    refreshJobsSilently();
+  }, [])
+);
 
   function getSortedJobs(list: Job[]) {
   const sorted = [...list];

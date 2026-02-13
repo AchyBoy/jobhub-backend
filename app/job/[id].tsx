@@ -34,8 +34,10 @@ useEffect(() => {
   loadCrews();
   loadPhases();
   loadAssignments();
-  flushSyncQueue();
   loadDefaults();
+setTimeout(() => {
+  flushSyncQueue();
+}, 50);
 }, [id]);
 
 async function loadCrews() {
@@ -66,11 +68,19 @@ async function loadDefaults() {
 
   // 2️⃣ Attempt API refresh
   try {
-    const supRes = await apiFetch(`/api/jobs/${id}/supervisors`);
-    const conRes = await apiFetch(`/api/jobs/${id}/contractor`);
-    const venRes = await apiFetch(`/api/jobs/${id}/vendor`);
-    const permitRes = await apiFetch(`/api/jobs/${id}/permit-company`);
-    const inspectionRes = await apiFetch(`/api/jobs/${id}/inspection`);
+    const [
+      supRes,
+      conRes,
+      venRes,
+      permitRes,
+      inspectionRes,
+    ] = await Promise.all([
+      apiFetch(`/api/jobs/${id}/supervisors`),
+      apiFetch(`/api/jobs/${id}/contractor`),
+      apiFetch(`/api/jobs/${id}/vendor`),
+      apiFetch(`/api/jobs/${id}/permit-company`),
+      apiFetch(`/api/jobs/${id}/inspection`),
+    ]);
 
     const updated = {
       supervisors: supRes.supervisors ?? [],

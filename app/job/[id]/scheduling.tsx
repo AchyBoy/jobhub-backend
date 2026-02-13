@@ -11,6 +11,7 @@ import { useLocalSearchParams, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 export default function SchedulingScreen() {
   const { id } = useLocalSearchParams();
@@ -24,11 +25,13 @@ export default function SchedulingScreen() {
     loadAll();
   }, [id]);
 
-  async function loadAll() {
-    await loadCrews();
-    await loadPhases();
-    await loadAssignments();
-  }
+ async function loadAll() {
+  await Promise.all([
+    loadCrews(),
+    loadPhases(),
+    loadAssignments(),
+  ]);
+}
 
   async function loadCrews() {
     const local = await AsyncStorage.getItem('crews_v1');
@@ -67,28 +70,46 @@ export default function SchedulingScreen() {
     } catch {}
   }
 
-  async function assignCrew(crewId: string, phase: string) {
-    const newAssignment = {
-      id: Date.now().toString(),
-      crewId,
-      phase,
-    };
+async function assignCrew(crewId: string, phase: string) {
+  const newAssignment = {
+    id: Date.now().toString(),
+    crewId,
+    phase,
+  };
 
-    const updated = [...assignments, newAssignment];
-    setAssignments(updated);
+  const updated = [...assignments, newAssignment];
 
-    await AsyncStorage.setItem(
-      `job:${id}:crews`,
-      JSON.stringify(updated)
-    );
+  // 1️⃣ Immediate UI update
+  setAssignments(updated);
 
-    try {
-      await apiFetch(`/api/jobs/${id}/crews`, {
-        method: 'POST',
-        body: JSON.stringify({ crewId, phase }),
-      });
-    } catch {}
+  // 2️⃣ Persist locally
+  await AsyncStorage.setItem(
+    `job:${id}:crews`,
+    JSON.stringify(updated)
+  );
+
+  // 3️⃣ Attempt backend
+  try {
+    await apiFetch(`/api/jobs/${id}/crews`, {
+      method: 'POST',
+      body: JSON.stringify({ crewId, phase }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'crew_assignment',
+      coalesceKey: `crew_assignment:${id}:${crewId}:${phase}`,
+      createdAt: nowIso(),
+      payload: {
+        jobId: id as string,
+        crewId,
+        phase,
+      },
+    });
   }
+
+  flushSyncQueue();
+}
 
     return (
     <>

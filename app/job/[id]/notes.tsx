@@ -15,7 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, Stack } from 'expo-router';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AddNoteBar from '../../../components/notes/AddNoteBar';
 
@@ -71,9 +71,18 @@ async function fetchPhasesFromBackend(): Promise<string[] | null> {
 }
 
 export default function JobNotes() {
-  const { id } = useLocalSearchParams();
+  const params = useLocalSearchParams();
+const idParam = typeof params.id === 'string' ? params.id : undefined;
 
+if (!idParam) {
+  throw new Error('JobNotes requires a valid job id');
+}
+
+const id = idParam;
   const [notes, setNotes] = useState<JobNote[]>([]);
+  const latestNotesRef = useRef<JobNote[]>([]);
+  const noteSaveTimers = useRef<Record<string, any>>({});
+
   const [jobName, setJobName] = useState<string>('');
 
   // NOTE (future us):
@@ -81,41 +90,45 @@ export default function JobNotes() {
   // We NEVER sync until backend notes have been loaded at least once.
   const [backendHydrated, setBackendHydrated] = useState(false);
 
-  async function syncNotesToBackend(jobId: string, notes: JobNote[]) {
-    if (!backendHydrated) {
-      // NOTE (future us):
-      // Never write to backend before initial load completes.
-      return;
-    }
+  useEffect(() => {
+  latestNotesRef.current = notes;
+}, [notes]);
+
+async function syncNotesToBackend(jobId: string, notes: JobNote[]) {
+  if (!backendHydrated) {
+    // NOTE (future us):
+    // Never write to backend before initial load completes.
+    return;
+  }
+
+  // NOTE (future us): backend is source of truth; always sync full note state.
+  // This prevents losing completion flags/timestamps when we add features like
+  // phase reassignment, A/B answers, editing, etc.
+  const payload = notes.map(n => ({
+    id: n.id,
+    jobId,
+    phase: n.phase,
+
+    // NOTE (future us):
+    // Backend stores both noteA and noteB.
+    // `text` is kept temporarily so website can migrate safely.
+    noteA: n.noteA,
+    noteB: n.noteB,
+    text: n.text ?? n.noteA,
+
+    status: n.status,
+    scheduledFor: n.scheduledFor,
+    markedCompleteBy: n.markedCompleteBy,
+    crewCompletedAt: n.crewCompletedAt,
+    officeCompletedAt: n.officeCompletedAt,
+    createdAt: n.createdAt,
+  }));
 
   try {
-// NOTE (future us): backend is source of truth; always sync full note state.
-// This prevents losing completion flags/timestamps when we add features like
-// phase reassignment, A/B answers, editing, etc.
-const payload = notes.map(n => ({
-  id: n.id,
-  jobId,
-  phase: n.phase,
-
-  // NOTE (future us):
-  // Backend stores both noteA and noteB.
-  // `text` is kept temporarily so website can migrate safely.
-  noteA: n.noteA,
-  noteB: n.noteB,
-  text: n.text ?? n.noteA,
-
-  status: n.status,
-  scheduledFor: n.scheduledFor,
-  markedCompleteBy: n.markedCompleteBy,
-  crewCompletedAt: n.crewCompletedAt,
-  officeCompletedAt: n.officeCompletedAt,
-  createdAt: n.createdAt,
-}));
-
-await apiFetch(`/api/job/${jobId}/notes`, {
-  method: 'POST',
-  body: JSON.stringify({ notes: payload }),
-});
+    await apiFetch(`/api/job/${jobId}/notes`, {
+      method: 'POST',
+      body: JSON.stringify({ notes: payload }),
+    });
   } catch (err) {
     console.warn('Failed to sync notes to backend — queued for retry', err);
 
@@ -217,57 +230,76 @@ async function addNote(text: string) {
     createdAt: new Date().toISOString(),
   };
 
-  const updated = [newNote, ...notes];
-  setNotes(updated);
+const updated: JobNote[] = [newNote, ...notes];  setNotes(updated);
 
   await AsyncStorage.setItem(
   `job:${id}:notes`,
   JSON.stringify(updated)
 );
 
-await syncNotesToBackend(id as string, updated);
+if (!id) return;
+await syncNotesToBackend(id, updated);
 }
 
 // NOTE (future us):
 // Autosave helper for editing noteA / noteB.
 // No save button on purpose — typing triggers save.
-async function updateNoteField(
+function updateNoteField(
   noteId: string,
   field: 'noteA' | 'noteB',
   value: string
 ) {
-  // optimistic UI update
-  const updated = notes.map(n =>
+  if (!id) return;
+
+  // 1) Immediate UI update (fast typing)
+  const updated: JobNote[] = notes.map(n =>
     n.id === noteId ? { ...n, [field]: value } : n
   );
   setNotes(updated);
+  latestNotesRef.current = updated;
 
-  // show "saving…"
+  // 2) Show "saving…" immediately
   setSaveStateByNote(prev => ({
     ...prev,
     [noteId]: 'saving',
   }));
 
-  // persist locally + backend
-  await AsyncStorage.setItem(
-    `job:${id}:notes`,
-    JSON.stringify(updated)
-  );
-  await syncNotesToBackend(id as string, updated);
+  // 3) Debounce disk + network
+  if (noteSaveTimers.current[noteId]) {
+    clearTimeout(noteSaveTimers.current[noteId]);
+  }
 
-  // show "saved"
-  setSaveStateByNote(prev => ({
-    ...prev,
-    [noteId]: 'saved',
-  }));
+  noteSaveTimers.current[noteId] = setTimeout(async () => {
+    try {
+      const latest = latestNotesRef.current;
 
-  // clear indicator after a short pause (no layout jump)
-  setTimeout(() => {
-    setSaveStateByNote(prev => {
-      const { [noteId]: _, ...rest } = prev;
-      return rest;
-    });
-  }, 1500);
+      // persist locally (still offline-first, just not per-keystroke)
+      await AsyncStorage.setItem(
+        `job:${id}:notes`,
+        JSON.stringify(latest)
+      );
+
+      // attempt backend sync (and queue if offline)
+if (!id) return;
+await syncNotesToBackend(id, latest);
+      // show "saved"
+      setSaveStateByNote(prev => ({
+        ...prev,
+        [noteId]: 'saved',
+      }));
+
+      // clear indicator after a short pause
+      setTimeout(() => {
+        setSaveStateByNote(prev => {
+          const { [noteId]: _, ...rest } = prev;
+          return rest;
+        });
+      }, 1500);
+    } catch {
+      // If something truly unexpected happens here, keep "saving…"
+      // (syncNotesToBackend already queues on network failure)
+    }
+  }, 700);
 }
 
 useEffect(() => {
@@ -281,8 +313,8 @@ useEffect(() => {
 async function loadJob() {
   if (!id) return;
 
-  const name = await fetchJobFromBackend(id as string);
-  if (name) {
+if (!id) return;
+const name = await fetchJobFromBackend(id);  if (name) {
     setJobName(name);
   }
 }
@@ -329,8 +361,8 @@ async function loadNotes() {
 
 
   // 2️⃣ Fetch backend state (source of truth)
-  const remoteNotes = await fetchNotesFromBackend(id as string);
-
+if (!id) return;
+const remoteNotes = await fetchNotesFromBackend(id);
 // 3️⃣ Backend responded
 if (Array.isArray(remoteNotes)) {
   // Only replace local state if backend actually has notes
@@ -356,8 +388,7 @@ async function markAttemptedComplete(
   noteId: string,
   by: 'crew' | 'contractor'
 ) {
-  const updated = notes.map(n =>
-    n.id === noteId
+const updated: JobNote[] = notes.map(n =>    n.id === noteId
       ? {
           ...n,
           markedCompleteBy: by,
@@ -372,12 +403,12 @@ async function markAttemptedComplete(
     `job:${id}:notes`,
     JSON.stringify(updated)
   );
-  await syncNotesToBackend(id as string, updated);
+  if (!id) return;
+await syncNotesToBackend(id, updated);
 }
 
 async function markOfficeComplete(noteId: string) {
-  const updated = notes.map(n =>
-    n.id === noteId
+const updated: JobNote[] = notes.map(n =>    n.id === noteId
       ? {
           ...n,
           status: 'complete',
@@ -392,12 +423,12 @@ async function markOfficeComplete(noteId: string) {
     `job:${id}:notes`,
     JSON.stringify(updated)
   );
-  await syncNotesToBackend(id as string, updated);
+  if (!id) return;
+await syncNotesToBackend(id, updated);
 }
 
 async function markOfficeIncomplete(noteId: string) {
-  const updated = notes.map(n =>
-    n.id === noteId
+const updated: JobNote[] = notes.map(n =>    n.id === noteId
       ? {
           ...n,
           status: 'incomplete',
@@ -414,7 +445,8 @@ async function markOfficeIncomplete(noteId: string) {
     `job:${id}:notes`,
     JSON.stringify(updated)
   );
-  await syncNotesToBackend(id as string, updated);
+  if (!id) return;
+await syncNotesToBackend(id, updated);
 }
 
 // NOTE: when a note is moved to another phase, it should not
@@ -430,8 +462,8 @@ function resetNoteForNewPhase(note: JobNote): JobNote {
 }
 
 async function changeNotePhase(noteId: string, newPhase: string) {
-  const updated = notes.map(n => {
-    if (n.id !== noteId) return n;
+const updated: JobNote[] = notes.map(n => {
+  if (n.id !== noteId) return n;
     return resetNoteForNewPhase({
       ...n,
       phase: newPhase,
@@ -444,7 +476,8 @@ async function changeNotePhase(noteId: string, newPhase: string) {
     `job:${id}:notes`,
     JSON.stringify(updated)
   );
-  await syncNotesToBackend(id as string, updated);
+  if (!id) return;
+await syncNotesToBackend(id, updated);
 }
 
   return (

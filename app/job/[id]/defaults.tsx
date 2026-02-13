@@ -46,23 +46,66 @@ const [selectedInspectionCompany, setSelectedInspectionCompany] =
 
 async function load() {
   try {
-    const supRes = await apiFetch('/api/supervisors');
-    setSupervisors(supRes.supervisors ?? []);
+    // 1️⃣ LOAD LOCAL FIRST (instant UI)
 
-    const conRes = await apiFetch('/api/contractors');
-    setContractors(conRes.contractors ?? []);
+    const [
+      supLocal,
+      conLocal,
+      venLocal,
+      permitLocal,
+      inspectionLocal,
+    ] = await Promise.all([
+      AsyncStorage.getItem('supervisors_v1'),
+      AsyncStorage.getItem('contractors_v1'),
+      AsyncStorage.getItem('vendors_v1'),
+      AsyncStorage.getItem('permit_companies_v1'),
+      AsyncStorage.getItem('inspections_v1'),
+    ]);
 
-const venRes = await apiFetch('/api/vendors');
-setVendors(venRes.vendors ?? []);
+    if (supLocal) setSupervisors(JSON.parse(supLocal));
+    if (conLocal) setContractors(JSON.parse(conLocal));
+    if (venLocal) setVendors(JSON.parse(venLocal));
+    if (permitLocal) setPermitCompanies(JSON.parse(permitLocal));
+    if (inspectionLocal) setInspectionCompanies(JSON.parse(inspectionLocal));
 
-const permitRes = await apiFetch('/api/permit-companies');
-setPermitCompanies(permitRes.permitCompanies ?? []);
+    // 2️⃣ BACKGROUND REFRESH (parallel, not sequential)
 
-const inspectionRes = await apiFetch('/api/inspections');
-setInspectionCompanies(inspectionRes.inspections ?? []);
+    const [
+      supRes,
+      conRes,
+      venRes,
+      permitRes,
+      inspectionRes,
+    ] = await Promise.all([
+      apiFetch('/api/supervisors'),
+      apiFetch('/api/contractors'),
+      apiFetch('/api/vendors'),
+      apiFetch('/api/permit-companies'),
+      apiFetch('/api/inspections'),
+    ]);
+
+    const sup = supRes.supervisors ?? [];
+    const con = conRes.contractors ?? [];
+    const ven = venRes.vendors ?? [];
+    const permit = permitRes.permitCompanies ?? [];
+    const inspection = inspectionRes.inspections ?? [];
+
+    setSupervisors(sup);
+    setContractors(con);
+    setVendors(ven);
+    setPermitCompanies(permit);
+    setInspectionCompanies(inspection);
+
+    await Promise.all([
+      AsyncStorage.setItem('supervisors_v1', JSON.stringify(sup)),
+      AsyncStorage.setItem('contractors_v1', JSON.stringify(con)),
+      AsyncStorage.setItem('vendors_v1', JSON.stringify(ven)),
+      AsyncStorage.setItem('permit_companies_v1', JSON.stringify(permit)),
+      AsyncStorage.setItem('inspections_v1', JSON.stringify(inspection)),
+    ]);
 
   } catch {
-    console.warn('Failed to load defaults');
+    // silent offline mode
   }
 }
 
