@@ -12,11 +12,14 @@ import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncE
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
 const router = useRouter();
+const [jobSupervisors, setJobSupervisors] = useState<any[]>([]);
+const [jobContractor, setJobContractor] = useState<any | null>(null);
 
 const [detailsExpanded, setDetailsExpanded] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
 const [crews, setCrews] = useState<any[]>([]);
 const [phases, setPhases] = useState<string[]>([]);
+
 
 const jobName =
   typeof name === 'string' && name.length > 0
@@ -29,6 +32,7 @@ useEffect(() => {
   loadPhases();
   loadAssignments();
   flushSyncQueue();
+  loadDefaults();
 }, [id]);
 
 async function loadCrews() {
@@ -39,6 +43,16 @@ async function loadCrews() {
     const res = await apiFetch('/api/crews');
     setCrews(res.crews ?? []);
     await AsyncStorage.setItem('crews_v1', JSON.stringify(res.crews ?? []));
+  } catch {}
+}
+
+async function loadDefaults() {
+  try {
+    const supRes = await apiFetch(`/api/jobs/${id}/supervisors`);
+    setJobSupervisors(supRes.supervisors ?? []);
+
+    const conRes = await apiFetch(`/api/jobs/${id}/contractor`);
+    setJobContractor(conRes.contractor ?? null);
   } catch {}
 }
 
@@ -128,16 +142,26 @@ async function assignCrew(crewId: string, phase: string) {
       </View>
 
       <View style={{ marginTop: 10 }}>
-        <Text style={styles.detailLabel}>Supervisor</Text>
-        <Text style={styles.detailValue}>John Smith</Text>
-        <Text style={styles.detailMeta}>555-123-4567</Text>
-        <Text style={styles.detailMeta}>john@email.com</Text>
+<Text style={styles.detailLabel}>Supervisors</Text>
+
+{jobSupervisors.length === 0 ? (
+  <Text style={styles.detailValue}>Not Assigned</Text>
+) : (
+  jobSupervisors.map(s => (
+    <Text key={s.id} style={styles.detailValue}>
+      {s.name}
+    </Text>
+  ))
+)}
       </View>
 
       {detailsExpanded && (
         <View style={{ marginTop: 16, gap: 8 }}>
-          <Text style={styles.detailLabel}>Primary Contractor</Text>
-          <Text style={styles.detailValue}>ABC Electric</Text>
+<Text style={styles.detailLabel}>Primary Contractor</Text>
+
+<Text style={styles.detailValue}>
+  {jobContractor?.name ?? "Not Assigned"}
+</Text>
 
           <Text style={styles.detailLabel}>Inspector</Text>
           <Text style={styles.detailValue}>Not Assigned</Text>
@@ -235,6 +259,17 @@ async function assignCrew(crewId: string, phase: string) {
       <Text style={styles.cardTitle}>Send Links</Text>
       <Text style={styles.cardSub}>
         Email phase-specific crew links
+      </Text>
+    </Pressable>
+
+        {/* Set Defaults */}
+    <Pressable
+      style={styles.card}
+      onPress={() => router.push(`/job/${id}/defaults`)}
+    >
+      <Text style={styles.cardTitle}>Set Defaults</Text>
+      <Text style={styles.cardSub}>
+        Contractor, supervisors, inspector, etc
       </Text>
     </Pressable>
 

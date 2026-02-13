@@ -1,11 +1,270 @@
-//Jobhub/app/main/directories/crews.tsx
-import { View, Text, StyleSheet } from 'react-native';
+// JobHub/app/main/directories/contractors.tsx
 
-export default function Screen() {
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  TextInput,
+  ScrollView,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useState, useEffect, useRef } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { apiFetch } from '../../../src/lib/apiClient';
+
+type Contact = {
+  id: string;
+  type: 'phone' | 'email';
+  label?: string;
+  value: string;
+};
+
+type Contractor = {
+  id: string;
+  name: string;
+  contacts: Contact[];
+};
+
+export default function ContractorsScreen() {
+  const [contractors, setContractors] = useState<Contractor[]>([]);
+  const prevRef = useRef<Contractor[]>([]);
+  const [newName, setNewName] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const saveTimers = useRef<Record<string, any>>({});
+  const [saveState, setSaveState] =
+    useState<Record<string, 'saving' | 'saved'>>({});
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  async function load() {
+    try {
+      const cached = await AsyncStorage.getItem('contractors_v1');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        setContractors(parsed);
+        prevRef.current = parsed;
+      }
+
+      const res = await apiFetch('/api/contractors');
+      const remote = res.contractors ?? [];
+
+      setContractors(remote);
+      prevRef.current = remote;
+
+      await AsyncStorage.setItem(
+        'contractors_v1',
+        JSON.stringify(remote)
+      );
+    } catch {
+      console.warn('Using cached contractors');
+    }
+  }
+
+  async function addContractor() {
+    if (!newName.trim()) return;
+
+    const id = Date.now().toString();
+
+    await apiFetch('/api/contractors', {
+      method: 'POST',
+      body: JSON.stringify({
+        id,
+        name: newName.trim(),
+        contacts: [],
+      }),
+    });
+
+    setNewName('');
+    await load();
+  }
+
+  async function addContact(id: string, type: 'phone' | 'email') {
+    const contractor = contractors.find(c => c.id === id);
+    if (!contractor) return;
+
+    const contactId = Date.now().toString();
+
+    await apiFetch('/api/contractors', {
+      method: 'POST',
+      body: JSON.stringify({
+        id,
+        name: contractor.name,
+        contacts: [
+          ...contractor.contacts,
+          { id: contactId, type, value: '' },
+        ],
+      }),
+    });
+
+    await load();
+  }
+
+  function updateContact(
+    contractorId: string,
+    contactId: string,
+    value: string
+  ) {
+    setContractors(prev => {
+      const updated = prev.map(c =>
+        c.id === contractorId
+          ? {
+              ...c,
+              contacts: c.contacts.map(ct =>
+                ct.id === contactId
+                  ? { ...ct, value }
+                  : ct
+              ),
+            }
+          : c
+      );
+
+      prevRef.current = updated;
+      return updated;
+    });
+
+    triggerAutosave(contractorId);
+  }
+
+  function triggerAutosave(contractorId: string) {
+    if (saveTimers.current[contractorId]) {
+      clearTimeout(saveTimers.current[contractorId]);
+    }
+
+    setSaveState(prev => ({
+      ...prev,
+      [contractorId]: 'saving',
+    }));
+
+    saveTimers.current[contractorId] = setTimeout(
+      async () => {
+        const contractor = prevRef.current.find(
+          c => c.id === contractorId
+        );
+        if (!contractor) return;
+
+        await apiFetch('/api/contractors', {
+          method: 'POST',
+          body: JSON.stringify(contractor),
+        });
+
+        await AsyncStorage.setItem(
+          'contractors_v1',
+          JSON.stringify(prevRef.current)
+        );
+
+        setSaveState(prev => ({
+          ...prev,
+          [contractorId]: 'saved',
+        }));
+
+        setTimeout(() => {
+          setSaveState(prev => {
+            const { [contractorId]: _, ...rest } =
+              prev;
+            return rest;
+          });
+        }, 1500);
+      },
+      600
+    );
+  }
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Coming Soon</Text>
-    </View>
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Contractors</Text>
+
+      <View style={styles.addRow}>
+        <TextInput
+          placeholder="Contractor name"
+          value={newName}
+          onChangeText={setNewName}
+          style={styles.input}
+        />
+        <Pressable style={styles.addBtn} onPress={addContractor}>
+          <Text style={styles.addBtnText}>Add</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView>
+        {contractors.map(contractor => (
+          <View key={contractor.id} style={styles.card}>
+            <Pressable
+              onPress={() =>
+                setExpanded(prev =>
+                  prev === contractor.id
+                    ? null
+                    : contractor.id
+                )
+              }
+            >
+              <Text style={styles.name}>
+                {contractor.name}
+              </Text>
+            </Pressable>
+
+            {expanded === contractor.id && (
+              <View style={{ marginTop: 10 }}>
+                {contractor.contacts.map(contact => (
+                  <TextInput
+                    key={contact.id}
+                    placeholder={
+                      contact.type === 'phone'
+                        ? 'Phone'
+                        : 'Email'
+                    }
+                    value={contact.value}
+                    onChangeText={text =>
+                      updateContact(
+                        contractor.id,
+                        contact.id,
+                        text
+                      )
+                    }
+                    style={styles.input}
+                  />
+                ))}
+
+                <View style={styles.contactBtns}>
+                  <Pressable
+                    onPress={() =>
+                      addContact(contractor.id, 'phone')
+                    }
+                  >
+                    <Text style={styles.link}>
+                      + Phone
+                    </Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() =>
+                      addContact(contractor.id, 'email')
+                    }
+                  >
+                    <Text style={styles.link}>
+                      + Email
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={{ height: 18 }}>
+                  {saveState[contractor.id] && (
+                    <Text style={{ fontSize: 12, opacity: 0.5 }}>
+                      {saveState[contractor.id] ===
+                      'saving'
+                        ? 'saving…'
+                        : 'saved'}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            )}
+          </View>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
@@ -13,11 +272,57 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 20,
-    paddingTop: 60,
     backgroundColor: '#fff',
   },
   title: {
-    fontSize: 22,
+    fontSize: 28,
+    fontWeight: '700',
+    marginBottom: 20,
+  },
+  addRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  input: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    marginBottom: 8,
+  },
+  addBtn: {
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#2563eb',
+  },
+  addBtnText: {
+    color: '#fff',
     fontWeight: '600',
+  },
+  card: {
+    padding: 16,
+    borderRadius: 16,
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    marginBottom: 14,
+  },
+  name: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  contactBtns: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  link: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1e40af',
   },
 });
