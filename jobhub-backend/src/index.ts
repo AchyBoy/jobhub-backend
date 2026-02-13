@@ -22,12 +22,14 @@ import jobVendorsRoutes from "./routes/jobVendors";
 import jobContractorsRoutes from "./routes/jobContractors";
 import jobCrewsRoutes from "./routes/jobCrews";
 import jobDefaultsRoutes from "./routes/jobDefaults";
+import scheduleRoutes from "./routes/schedule";
 import jobSupervisorsRoutes from "./routes/jobSupervisors";
 import supervisorsRoutes from "./routes/supervisors";
 import permitCompaniesRoutes from "./routes/permitCompanies";
 import jobPermitCompaniesRoutes from "./routes/jobPermitCompanies";
 import inspectionsRoutes from "./routes/inspections";
 import jobInspectionsRoutes from "./routes/jobInspections";
+import scheduledTasksRoutes from "./routes/scheduledTasks";
 // ⚠️ TEMP: Postgres connectivity check
 // DO NOT REMOVE until data migration is complete
 import { Client } from "pg";
@@ -70,6 +72,8 @@ app.use("/api/permit-companies", permitCompaniesRoutes);
 app.use("/api/jobs", jobPermitCompaniesRoutes);
 app.use("/api/inspections", inspectionsRoutes);
 app.use("/api/jobs", jobInspectionsRoutes);
+app.use("/api", scheduledTasksRoutes);
+app.use("/api/schedule", scheduleRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
 app.use("/api/phases", phasesRoutes);

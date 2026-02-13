@@ -2,6 +2,7 @@
 import {
   View,
   Text,
+  TextInput, // add this
   StyleSheet,
   ScrollView,
   Pressable,
@@ -19,6 +20,9 @@ export default function SchedulingScreen() {
   const [crews, setCrews] = useState<any[]>([]);
   const [phases, setPhases] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
+  const [scheduledAt, setScheduledAt] = useState<string>(
+  new Date().toISOString()
+);
 
   useEffect(() => {
     if (!id) return;
@@ -70,11 +74,17 @@ export default function SchedulingScreen() {
     } catch {}
   }
 
-async function assignCrew(crewId: string, phase: string) {
+async function assignCrew(
+  crewId: string,
+  phase: string
+) {
+  if (!id) return;
+
   const newAssignment = {
     id: Date.now().toString(),
     crewId,
     phase,
+    scheduledAt,
   };
 
   const updated = [...assignments, newAssignment];
@@ -88,22 +98,27 @@ async function assignCrew(crewId: string, phase: string) {
     JSON.stringify(updated)
   );
 
-  // 3️⃣ Attempt backend
+  // 3️⃣ Attempt backend schedule endpoint
   try {
-    await apiFetch(`/api/jobs/${id}/crews`, {
+    await apiFetch(`/api/jobs/${id}/schedule`, {
       method: 'POST',
-      body: JSON.stringify({ crewId, phase }),
+      body: JSON.stringify({
+        crewId,
+        phase,
+        scheduledAt,
+      }),
     });
   } catch {
     await enqueueSync({
       id: makeId(),
-      type: 'crew_assignment',
-      coalesceKey: `crew_assignment:${id}:${crewId}:${phase}`,
+      type: 'job_schedule_create',
+      coalesceKey: `job_schedule_create:${id}:${crewId}:${phase}`,
       createdAt: nowIso(),
       payload: {
-        jobId: id as string,
+        jobId: id,
         crewId,
         phase,
+        scheduledAt,
       },
     });
   }
@@ -117,6 +132,22 @@ async function assignCrew(crewId: string, phase: string) {
 
       <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Scheduling</Text>
+      <View style={{ marginBottom: 20 }}>
+  <Text style={{ fontWeight: '700', marginBottom: 6 }}>
+    Scheduled Date/Time (ISO)
+  </Text>
+
+  <TextInput
+    value={scheduledAt}
+    onChangeText={setScheduledAt}
+    style={{
+      borderWidth: 1,
+      borderColor: '#ccc',
+      padding: 8,
+      borderRadius: 8,
+    }}
+  />
+</View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {phases.map(phase => {
