@@ -1,5 +1,5 @@
 //JobHub/app/job/[id].tsx
-import { Text, StyleSheet, Pressable, View } from 'react-native';
+import { Text, StyleSheet, Pressable, View, ScrollView } from 'react-native';
 
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,6 +15,7 @@ const router = useRouter();
 const [jobSupervisors, setJobSupervisors] = useState<any[]>([]);
 const [jobContractor, setJobContractor] = useState<any | null>(null);
 const [jobVendor, setJobVendor] = useState<any | null>(null);
+const [jobPermitCompany, setJobPermitCompany] = useState<any | null>(null);
 
 const [detailsExpanded, setDetailsExpanded] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
@@ -57,6 +58,10 @@ async function loadDefaults() {
 
     const venRes = await apiFetch(`/api/jobs/${id}/vendor`);
     setJobVendor(venRes.vendor ?? null);
+
+    const permitRes = await apiFetch(`/api/jobs/${id}/permit-company`);
+    setJobPermitCompany(permitRes.permitCompany ?? null);
+
   } catch {}
 }
 
@@ -124,6 +129,11 @@ async function assignCrew(crewId: string, phase: string) {
   edges={['left', 'right', 'bottom']}
 >
 
+<ScrollView
+  contentContainerStyle={{ paddingBottom: 60 }}
+  showsVerticalScrollIndicator={false}
+>
+
   <Text style={styles.title}>{jobName}</Text>
 
   <Text style={styles.sub}>Job ID: {id}</Text>
@@ -176,8 +186,11 @@ async function assignCrew(crewId: string, phase: string) {
           <Text style={styles.detailLabel}>Inspector</Text>
           <Text style={styles.detailValue}>Not Assigned</Text>
 
-          <Text style={styles.detailLabel}>Permit Company</Text>
-          <Text style={styles.detailValue}>Not Assigned</Text>
+<Text style={styles.detailLabel}>Permit Company</Text>
+
+<Text style={styles.detailValue}>
+  {jobPermitCompany?.name ?? "Not Assigned"}
+</Text>
 
 <Text style={[styles.detailLabel, { marginTop: 12 }]}>
   Assigned Crews (per phase)
@@ -297,6 +310,8 @@ async function assignCrew(crewId: string, phase: string) {
   </View>
 
 </View>
+
+</ScrollView>
 </SafeAreaView>
   );
 }

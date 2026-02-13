@@ -19,6 +19,7 @@ export default function JobDefaultsScreen() {
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [contractors, setContractors] = useState<any[]>([]);
 const [vendors, setVendors] = useState<any[]>([]);
+const [permitCompanies, setPermitCompanies] = useState<any[]>([]);
 
   const [selectedSupervisors, setSelectedSupervisors] =
     useState<string[]>([]);
@@ -26,6 +27,9 @@ const [selectedContractor, setSelectedContractor] =
   useState<string | null>(null);
 
 const [selectedVendor, setSelectedVendor] =
+  useState<string | null>(null);
+
+const [selectedPermitCompany, setSelectedPermitCompany] =
   useState<string | null>(null);
 
   useEffect(() => {
@@ -41,8 +45,11 @@ async function load() {
     const conRes = await apiFetch('/api/contractors');
     setContractors(conRes.contractors ?? []);
 
-    const venRes = await apiFetch('/api/vendors');
-    setVendors(venRes.vendors ?? []);
+const venRes = await apiFetch('/api/vendors');
+setVendors(venRes.vendors ?? []);
+
+const permitRes = await apiFetch('/api/permit-companies');
+setPermitCompanies(permitRes.permitCompanies ?? []);
 
   } catch {
     console.warn('Failed to load defaults');
@@ -88,6 +95,17 @@ async function selectVendor(vendorId: string) {
     method: 'POST',
     body: JSON.stringify({
       vendorId,
+    }),
+  });
+}
+
+async function selectPermitCompany(permitCompanyId: string) {
+  setSelectedPermitCompany(permitCompanyId);
+
+  await apiFetch(`/api/jobs/${id}/permit-company`, {
+    method: 'POST',
+    body: JSON.stringify({
+      permitCompanyId,
     }),
   });
 }
@@ -151,6 +169,25 @@ async function selectVendor(vendorId: string) {
         ? '✓ '
         : '○ '}
       {v.name}
+    </Text>
+  </Pressable>
+))}
+
+<Text style={styles.section}>
+  Permit Company (Single)
+</Text>
+
+{permitCompanies.map(p => (
+  <Pressable
+    key={p.id}
+    onPress={() => selectPermitCompany(p.id)}
+    style={styles.row}
+  >
+    <Text>
+      {selectedPermitCompany === p.id
+        ? '✓ '
+        : '○ '}
+      {p.name}
     </Text>
   </Pressable>
 ))}
