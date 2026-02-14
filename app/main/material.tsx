@@ -1,3 +1,4 @@
+////JobHub/app/main/materials.tsx
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 

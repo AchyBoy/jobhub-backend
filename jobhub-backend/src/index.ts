@@ -22,7 +22,7 @@ import jobVendorsRoutes from "./routes/jobVendors";
 import jobContractorsRoutes from "./routes/jobContractors";
 import jobCrewsRoutes from "./routes/jobCrews";
 import jobDefaultsRoutes from "./routes/jobDefaults";
-
+import materialsRoutes from "./routes/materials";
 import jobSupervisorsRoutes from "./routes/jobSupervisors";
 import supervisorsRoutes from "./routes/supervisors";
 import permitCompaniesRoutes from "./routes/permitCompanies";
@@ -73,7 +73,7 @@ app.use("/api/jobs", jobPermitCompaniesRoutes);
 app.use("/api/inspections", inspectionsRoutes);
 app.use("/api/jobs", jobInspectionsRoutes);
 app.use("/api/scheduled-tasks", scheduledTasksRoutes);
-
+app.use("/api/materials", materialsRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
 app.use("/api/phases", phasesRoutes);

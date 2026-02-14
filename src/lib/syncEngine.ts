@@ -125,6 +125,31 @@ type SyncItem =
     coalesceKey: string;
     createdAt: string;
     payload: { taskId: string };
+  }
+| {
+    id: string;
+    type: 'material_create';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      id: string;
+      job_id: string;
+      item_name: string;
+      phase: string;
+      supplier_id?: string | null;
+      qty_needed: number;
+      status: string;
+    };
+  }
+| {
+    id: string;
+    type: 'material_update';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      materialId: string;
+      qtyNeeded: number;
+    };
   };
 
 const QUEUE_KEY = 'sync_queue_v1';
@@ -304,6 +329,40 @@ if (item.type === 'scheduled_task_delete') {
 
   await apiFetch(`/api/scheduled-tasks/${taskId}`, {
     method: 'DELETE',
+  });
+}
+
+if (item.type === 'material_create') {
+  const {
+    id,
+    job_id,
+    item_name,
+    phase,
+    supplier_id,
+    qty_needed,
+  } = item.payload;
+
+  await apiFetch('/api/materials', {
+    method: 'POST',
+    body: JSON.stringify({
+      id,
+      jobId: job_id,
+      itemName: item_name,
+      phase,
+      supplierId: supplier_id,
+      qtyNeeded: qty_needed,
+    }),
+  });
+}
+
+if (item.type === 'material_update') {
+  const { materialId, qtyNeeded } = item.payload;
+
+  await apiFetch(`/api/materials/${materialId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      qtyNeeded,
+    }),
   });
 }
     } catch (err) {

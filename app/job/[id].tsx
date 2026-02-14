@@ -310,13 +310,16 @@ async function assignCrew(crewId: string, phase: string) {
       </Text>
     </Pressable>
 
-    {/* Material */}
-    <View style={[styles.card, styles.disabled]}>
-      <Text style={styles.cardTitle}>Material</Text>
-      <Text style={styles.cardSub}>
-        Job materials & tracking
-      </Text>
-    </View>
+{/* Material */}
+<Pressable
+  style={styles.card}
+  onPress={() => router.push(`/job/${id}/materials`)}
+>
+  <Text style={styles.cardTitle}>Material</Text>
+  <Text style={styles.cardSub}>
+    Job materials & tracking
+  </Text>
+</Pressable>
 
     {/* Send Links */}
     <Pressable
