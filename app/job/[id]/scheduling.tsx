@@ -98,30 +98,31 @@ async function assignCrew(
     JSON.stringify(updated)
   );
 
-  // 3️⃣ Attempt backend schedule endpoint
-  try {
-    await apiFetch(`/api/jobs/${id}/schedule`, {
-      method: 'POST',
-      body: JSON.stringify({
-        crewId,
-        phase,
-        scheduledAt,
-      }),
-    });
-  } catch {
-    await enqueueSync({
-      id: makeId(),
-      type: 'job_schedule_create',
-      coalesceKey: `job_schedule_create:${id}:${crewId}:${phase}`,
-      createdAt: nowIso(),
-      payload: {
-        jobId: id,
-        crewId,
-        phase,
-        scheduledAt,
-      },
-    });
-  }
+// 3️⃣ Attempt backend scheduled task endpoint
+try {
+  await apiFetch(`/api/scheduled-tasks`, {
+    method: 'POST',
+    body: JSON.stringify({
+      jobId: id,
+      crewId,
+      phase,
+      scheduledAt,
+    }),
+  });
+} catch {
+  await enqueueSync({
+    id: makeId(),
+    type: 'scheduled_task_create',
+    coalesceKey: `scheduled_task_create:${id}:${crewId}:${phase}`,
+    createdAt: nowIso(),
+    payload: {
+      jobId: id as string,
+      crewId,
+      phase,
+      scheduledAt,
+    },
+  });
+}
 
   flushSyncQueue();
 }

@@ -88,13 +88,43 @@ type SyncItem =
       createdAt: string;
       payload: { id: string; name: string; contacts: any[] };
     }
-  | {
-      id: string;
-      type: 'crew_upsert';
-      coalesceKey: string;
-      createdAt: string;
-      payload: { id: string; name: string; contacts: any[] };
+| {
+    id: string;
+    type: 'crew_upsert';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { id: string; name: string; contacts: any[] };
+  }
+| {
+    id: string;
+    type: 'scheduled_task_create';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      jobId: string;
+      crewId: string;
+      phase: string;
+      scheduledAt: string;
     };
+  }
+| {
+    id: string;
+    type: 'scheduled_task_update';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      taskId: string;
+      scheduledAt?: string;
+      status?: string;
+    };
+  }
+| {
+    id: string;
+    type: 'scheduled_task_delete';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { taskId: string };
+  };
 
 const QUEUE_KEY = 'sync_queue_v1';
 
@@ -245,6 +275,36 @@ export async function flushSyncQueue() {
           body: JSON.stringify(item.payload),
         });
       }
+      if (item.type === 'scheduled_task_create') {
+  const { jobId, crewId, phase, scheduledAt } = item.payload;
+
+  await apiFetch('/api/scheduled-tasks', {
+    method: 'POST',
+    body: JSON.stringify({
+      jobId,
+      crewId,
+      phase,
+      scheduledAt,
+    }),
+  });
+}
+
+if (item.type === 'scheduled_task_update') {
+  const { taskId, ...updates } = item.payload;
+
+  await apiFetch(`/api/scheduled-tasks/${taskId}`, {
+    method: 'PATCH',
+    body: JSON.stringify(updates),
+  });
+}
+
+if (item.type === 'scheduled_task_delete') {
+  const { taskId } = item.payload;
+
+  await apiFetch(`/api/scheduled-tasks/${taskId}`, {
+    method: 'DELETE',
+  });
+}
     } catch (err) {
       // keep it for later
       remaining.push(item);
