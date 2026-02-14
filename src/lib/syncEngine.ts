@@ -114,8 +114,9 @@ type SyncItem =
     createdAt: string;
     payload: {
       taskId: string;
-      scheduledAt?: string;
+      scheduledAt?: string | null;
       status?: string;
+      crewId?: string;
     };
   }
 | {

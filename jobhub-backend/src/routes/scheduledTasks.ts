@@ -158,13 +158,15 @@ router.patch("/:id", async (req, res) => {
       const tenantId = (req as any).user.tenantId;
       const { id } = req.params;
 
-      const {
-        scheduledAt,
-        status,
-      }: {
-        scheduledAt?: string;
-        status?: 'scheduled' | 'in_progress' | 'complete';
-      } = req.body;
+const {
+  scheduledAt,
+  status,
+  crewId,
+}: {
+  scheduledAt?: string;
+  status?: 'scheduled' | 'in_progress' | 'complete';
+  crewId?: string;
+} = req.body;
 
       // 1️⃣ Ensure task exists and belongs to tenant
       const existing = await pool.query(
@@ -186,10 +188,35 @@ router.patch("/:id", async (req, res) => {
       const values: any[] = [];
       let idx = 1;
 
-      if (scheduledAt) {
-        updates.push(`scheduled_at = $${idx++}`);
-        values.push(scheduledAt);
-      }
+if (scheduledAt !== undefined) {
+  updates.push(`scheduled_at = $${idx++}`);
+  values.push(scheduledAt);
+}
+
+if (crewId) {
+  // Fetch crew name (tenant safe)
+  const crewResult = await pool.query(
+    `
+    SELECT name
+    FROM crews
+    WHERE id = $1
+      AND tenant_id = $2
+    `,
+    [crewId, tenantId]
+  );
+
+  if (crewResult.rowCount === 0) {
+    return res.status(404).json({ error: "Crew not found" });
+  }
+
+  const crewName = crewResult.rows[0].name;
+
+  updates.push(`crew_id = $${idx++}`);
+  values.push(crewId);
+
+  updates.push(`crew_name = $${idx++}`);
+  values.push(crewName);
+}
 
       if (status) {
         updates.push(`status = $${idx++}`);

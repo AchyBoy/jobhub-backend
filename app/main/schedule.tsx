@@ -6,6 +6,7 @@ import {
   StyleSheet,
   ScrollView,
   Pressable,
+  TextInput,
 } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -25,8 +26,46 @@ const [isCreating, setIsCreating] = useState(false);
 const [newTaskJobId, setNewTaskJobId] = useState<string | null>(null);
 const [newTaskPhase, setNewTaskPhase] = useState<string | null>(null);
 const [newTaskCrewId, setNewTaskCrewId] = useState<string | null>(null);
+const [pendingRescheduleTask, setPendingRescheduleTask] = useState<any | null>(null);
+const [rescheduleHour, setRescheduleHour] = useState<number>(8);
+const [rescheduleMinute, setRescheduleMinute] = useState<number>(0);
+const [rescheduleTargetDate, setRescheduleTargetDate] = useState<Date | null>(null);
+const [jobSearch, setJobSearch] = useState('');
+const [showPhaseDropdown, setShowPhaseDropdown] = useState(false);
+const [filterCrewId, setFilterCrewId] = useState<string | null>(null);
+const [filterPhase, setFilterPhase] = useState<string | null>(null);
+const [filterStatus, setFilterStatus] = useState<'scheduled' | 'complete' | null>(null);
+const [filterJobId, setFilterJobId] = useState<string | null>(null);
+const [filterStartDate, setFilterStartDate] = useState<Date | null>(null);
+const [filterEndDate, setFilterEndDate] = useState<Date | null>(null);
+const [showCrewDropdown, setShowCrewDropdown] = useState(false);
+const [crewEditTaskId, setCrewEditTaskId] = useState<string | null>(null);
+const [newTaskHour, setNewTaskHour] = useState<number>(8);
+const [newTaskMinute, setNewTaskMinute] = useState<number>(0); // 0 or 30
+const filteredJobs = jobs.filter(j =>
+  j.name?.toLowerCase().includes(jobSearch.toLowerCase())
+);
+const sortedCrews = [...crews].sort((a, b) =>
+  (a.name ?? '').localeCompare(b.name ?? '')
+);
 
-const groupedByDate = scheduledTasks.reduce((acc: any, task: any) => {
+const filteredTasks = scheduledTasks.filter(task => {
+  if (filterCrewId && task.crew_id !== filterCrewId) return false;
+  if (filterPhase && task.phase !== filterPhase) return false;
+  if (filterStatus && task.status !== filterStatus) return false;
+  if (filterJobId && task.job_id !== filterJobId) return false;
+
+  if (filterStartDate || filterEndDate) {
+    const taskDate = new Date(task.scheduled_at);
+
+    if (filterStartDate && taskDate < filterStartDate) return false;
+    if (filterEndDate && taskDate > filterEndDate) return false;
+  }
+
+  return true;
+});
+
+const groupedByDate = filteredTasks.reduce((acc: any, task: any) => {
   const date = new Date(task.scheduled_at).toLocaleDateString();
 
   if (!acc[date]) acc[date] = [];
@@ -122,14 +161,88 @@ async function rescheduleTask(task: any, daysToAdd: number) {
   flushSyncQueue();
 }
 
+async function changeTaskCrew(task: any, newCrewId: string) {
+  const updated = scheduledTasks.map(t =>
+    t.id === task.id
+      ? {
+          ...t,
+          crew_id: newCrewId,
+          crew_name: crews.find(c => c.id === newCrewId)?.name,
+        }
+      : t
+  );
+
+  setScheduledTasks(updated);
+  await AsyncStorage.setItem(
+    'scheduled_tasks_v1',
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/scheduled-tasks/${task.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        crewId: newCrewId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'scheduled_task_update',
+      coalesceKey: `scheduled_task_update:${task.id}`,
+      createdAt: nowIso(),
+      payload: {
+        taskId: task.id,
+        crewId: newCrewId,
+      },
+    });
+  }
+
+  flushSyncQueue();
+}
+
+async function unscheduleTask(task: any) {
+  // 1️⃣ Local first — remove task entirely
+  const updated = scheduledTasks.filter(t => t.id !== task.id);
+
+  setScheduledTasks(updated);
+  await AsyncStorage.setItem(
+    'scheduled_tasks_v1',
+    JSON.stringify(updated)
+  );
+
+  // 2️⃣ Attempt backend DELETE
+  try {
+    await apiFetch(`/api/scheduled-tasks/${task.id}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'scheduled_task_delete',
+      coalesceKey: `scheduled_task_delete:${task.id}`,
+      createdAt: nowIso(),
+      payload: {
+        taskId: task.id,
+      },
+    });
+  }
+
+  flushSyncQueue();
+}
+
 async function createTaskFromCalendar() {
   if (!selectedDate || !newTaskJobId || !newTaskCrewId || !newTaskPhase) {
     return;
   }
 
   // Default to 8:00 AM
-  const dateObj = new Date(selectedDate);
-  dateObj.setHours(8, 0, 0, 0);
+const dateObj = new Date(selectedDate);
+
+dateObj.setHours(newTaskHour);
+dateObj.setMinutes(newTaskMinute);
+dateObj.setSeconds(0);
+dateObj.setMilliseconds(0);
 
   const iso = dateObj.toISOString();
 
@@ -259,8 +372,9 @@ setJobs(jobsRes?.jobs ?? []);
 }
 
 function hasTasksOnDate(day: number) {
-  return scheduledTasks.some(t => {
-    const taskDate = new Date(t.scheduled_at);
+  return filteredTasks.some(t => {
+    if (!t.scheduled_at) return false;
+const taskDate = new Date(t.scheduled_at);
 
     return (
       taskDate.getFullYear() === currentMonth.getFullYear() &&
@@ -275,8 +389,9 @@ function tasksForSelectedDate() {
 
   const selected = new Date(selectedDate);
 
-  return scheduledTasks.filter(t => {
-    const taskDate = new Date(t.scheduled_at);
+  return filteredTasks.filter(t => {
+    if (!t.scheduled_at) return false;
+const taskDate = new Date(t.scheduled_at);
 
     return (
       taskDate.getFullYear() === selected.getFullYear() &&
@@ -287,40 +402,262 @@ function tasksForSelectedDate() {
 }
 
   return (
-  <View style={styles.container}>
+<View style={styles.container}>
+  <ScrollView
+    showsVerticalScrollIndicator={false}
+    keyboardShouldPersistTaps="handled"
+    contentContainerStyle={{ paddingBottom: 40 }}
+  >
     <Text style={styles.title}>Schedule</Text>
 
-    <View style={styles.toggleRow}>
-      <Pressable onPress={() => setViewMode('calendar')}>
-        <Text
-          style={
-            viewMode === 'calendar'
-              ? styles.activeTab
-              : styles.tab
-          }
-        >
-          Calendar
-        </Text>
-      </Pressable>
+  {/* FILTER TOGGLE */}
+  <Pressable
+    onPress={() =>
+      setExpandedId(expandedId === '__filters' ? null : '__filters')
+    }
+    style={{ marginBottom: 12 }}
+  >
+    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+      Filters
+    </Text>
+  </Pressable>
 
-      <Pressable onPress={() => setViewMode('list')}>
-        <Text
-          style={
-            viewMode === 'list'
-              ? styles.activeTab
-              : styles.tab
-          }
+{/* FILTER PANEL */}
+{expandedId === '__filters' && (
+  <View
+    style={{
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+      borderRadius: 12,
+      padding: 12,
+      marginBottom: 20,
+      backgroundColor: '#f9fafb',
+    }}
+  >
+
+    {/* CREW FILTER */}
+    <Text style={{ fontWeight: '700', marginBottom: 6 }}>
+      Crew
+    </Text>
+
+    <View
+      style={{
+        height: 44,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: '#fff',
+        marginBottom: 12,
+      }}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingVertical: 6 }}
+         nestedScrollEnabled
+      >
+        <Pressable
+          onPress={() => setFilterCrewId(null)}
+          style={{
+            height: 32,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
         >
-          List
-        </Text>
-      </Pressable>
+          <Text style={{ fontWeight: !filterCrewId ? '700' : '400' }}>
+            All Crews
+          </Text>
+        </Pressable>
+
+        {sortedCrews.map(c => (
+          <Pressable
+            key={c.id}
+            onPress={() => setFilterCrewId(c.id)}
+            style={{
+              height: 32,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={{
+                fontWeight: filterCrewId === c.id ? '700' : '400',
+                color: filterCrewId === c.id ? '#2563eb' : '#111',
+              }}
+            >
+              {c.name}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
     </View>
 
-    <ScrollView
-      contentContainerStyle={{ paddingBottom: 40 }}
-      showsVerticalScrollIndicator={false}
+
+    {/* PHASE FILTER */}
+    <Text style={{ fontWeight: '700', marginBottom: 6 }}>
+      Phase
+    </Text>
+
+    <View
+      style={{
+        height: 44,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: '#fff',
+        marginBottom: 12,
+      }}
     >
-      {scheduledTasks.length === 0 && (
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingVertical: 6 }}
+         nestedScrollEnabled
+      >
+        <Pressable
+          onPress={() => setFilterPhase(null)}
+          style={{
+            height: 32,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontWeight: !filterPhase ? '700' : '400' }}>
+            All Phases
+          </Text>
+        </Pressable>
+
+        {phases.map(p => (
+          <Pressable
+            key={p}
+            onPress={() => setFilterPhase(p)}
+            style={{
+              height: 32,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={{
+                fontWeight: filterPhase === p ? '700' : '400',
+                color: filterPhase === p ? '#2563eb' : '#111',
+              }}
+            >
+              {p}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+
+
+    {/* STATUS FILTER */}
+    <Text style={{ fontWeight: '700', marginBottom: 6 }}>
+      Status
+    </Text>
+
+    <View
+      style={{
+        height: 44,
+        borderWidth: 1,
+        borderColor: '#ddd',
+        borderRadius: 8,
+        overflow: 'hidden',
+        backgroundColor: '#fff',
+        marginBottom: 12,
+      }}
+    >
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingVertical: 6 }}
+         nestedScrollEnabled
+      >
+        <Pressable
+          onPress={() => setFilterStatus(null)}
+          style={{
+            height: 32,
+            justifyContent: 'center',
+            alignItems: 'center',
+          }}
+        >
+          <Text style={{ fontWeight: !filterStatus ? '700' : '400' }}>
+            All Statuses
+          </Text>
+        </Pressable>
+
+        {['scheduled', 'complete'].map(s => (
+          <Pressable
+            key={s}
+            onPress={() => setFilterStatus(s as any)}
+            style={{
+              height: 32,
+              justifyContent: 'center',
+              alignItems: 'center',
+            }}
+          >
+            <Text
+              style={{
+                fontWeight: filterStatus === s ? '700' : '400',
+                color: filterStatus === s ? '#2563eb' : '#111',
+              }}
+            >
+              {s}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+
+
+    {/* CLEAR BUTTON */}
+    <Pressable
+      onPress={() => {
+        setFilterCrewId(null);
+        setFilterPhase(null);
+        setFilterStatus(null);
+        setFilterJobId(null);
+        setFilterStartDate(null);
+        setFilterEndDate(null);
+      }}
+    >
+      <Text style={{ color: 'red', fontWeight: '700' }}>
+        Clear Filters
+      </Text>
+    </Pressable>
+
+  </View>
+)}
+
+  {/* VIEW MODE TOGGLE */}
+  <View style={styles.toggleRow}>
+    <Pressable onPress={() => setViewMode('calendar')}>
+      <Text
+        style={
+          viewMode === 'calendar'
+            ? styles.activeTab
+            : styles.tab
+        }
+      >
+        Calendar
+      </Text>
+    </Pressable>
+
+    <Pressable onPress={() => setViewMode('list')}>
+      <Text
+        style={
+          viewMode === 'list'
+            ? styles.activeTab
+            : styles.tab
+        }
+      >
+        List
+      </Text>
+    </Pressable>
+  </View>
+
+<View style={{ paddingVertical: 8 }}>
+
+      {filteredTasks.length === 0 && (
         <Text style={styles.empty}>
           No scheduled tasks
         </Text>
@@ -366,6 +703,14 @@ function tasksForSelectedDate() {
       </Pressable>
     </View>
 
+    {pendingRescheduleTask && !rescheduleTargetDate && (
+  <View style={{ marginBottom: 12 }}>
+    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+      Select a date
+    </Text>
+  </View>
+)}
+
     {getMonthMatrix(currentMonth).map((week, wi) => (
       <View key={wi} style={styles.weekRow}>
         {week.map((day, di) => (
@@ -383,16 +728,24 @@ function tasksForSelectedDate() {
                 ? styles.selectedDay
                 : null,
             ]}
-            onPress={() => {
-              if (!day) return;
-const d = new Date(
-  currentMonth.getFullYear(),
-  currentMonth.getMonth(),
-  day
-);
+onPress={() => {
+  if (!day) return;
 
-setSelectedDate(d.toISOString());
-            }}
+  const d = new Date(
+    currentMonth.getFullYear(),
+    currentMonth.getMonth(),
+    day
+  );
+
+  // If we are rescheduling a task
+  if (pendingRescheduleTask) {
+    setRescheduleTargetDate(d);
+    return;
+  }
+
+  // Normal selection mode
+  setSelectedDate(d.toISOString());
+}}
           >
             {day && (
               <>
@@ -406,6 +759,154 @@ setSelectedDate(d.toISOString());
         ))}
       </View>
     ))}
+
+    {pendingRescheduleTask && rescheduleTargetDate && (
+  <View style={{
+    marginTop: 20,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#f9fafb',
+    borderWidth: 1,
+    borderColor: '#eee'
+  }}>
+    <Text style={{ fontWeight: '700', marginBottom: 10 }}>
+      Reschedule to:
+    </Text>
+
+{/* Time Wheel (30 min increments, 12hr format) */}
+<View
+  style={{
+    height: 132, // 3 visible rows
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    marginBottom: 16,
+    overflow: 'hidden',
+    backgroundColor: '#fff',
+  }}
+>
+  <ScrollView
+    showsVerticalScrollIndicator={false}
+    decelerationRate="fast"
+  >
+    {Array.from({ length: 48 }).map((_, i) => {
+      const hour24 = Math.floor(i / 2);
+      const minute = i % 2 === 0 ? 0 : 30;
+
+      const hour12 =
+        hour24 === 0
+          ? 12
+          : hour24 > 12
+          ? hour24 - 12
+          : hour24;
+
+      const ampm = hour24 < 12 ? 'am' : 'pm';
+
+      const isSelected =
+        rescheduleHour === hour24 &&
+        rescheduleMinute === minute;
+
+      const label = `${hour12}:${minute === 0 ? '00' : '30'} ${ampm}`;
+
+      return (
+        <Pressable
+          key={i}
+          onPress={() => {
+            setRescheduleHour(hour24);
+            setRescheduleMinute(minute);
+          }}
+          style={{
+            height: 44,
+            justifyContent: 'center',
+            alignItems: 'center',
+            backgroundColor: isSelected ? '#2563eb' : 'transparent',
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 16,
+              color: isSelected ? '#fff' : '#111',
+              fontWeight: isSelected ? '700' : '500',
+            }}
+          >
+            {label}
+          </Text>
+        </Pressable>
+      );
+    })}
+  </ScrollView>
+</View>
+
+    <View style={{ flexDirection: 'row', gap: 20 }}>
+      <Pressable
+        onPress={() => {
+          setPendingRescheduleTask(null);
+          setRescheduleTargetDate(null);
+        }}
+      >
+        <Text style={{ color: 'red', fontWeight: '700' }}>
+          Cancel
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={async () => {
+          const d = new Date(rescheduleTargetDate);
+          d.setHours(rescheduleHour);
+          d.setMinutes(rescheduleMinute);
+          d.setSeconds(0);
+          d.setMilliseconds(0);
+
+          const newIso = d.toISOString();
+
+          const updated = scheduledTasks.map(t =>
+            t.id === pendingRescheduleTask.id
+              ? { ...t, scheduled_at: newIso }
+              : t
+          );
+
+          setScheduledTasks(updated);
+          await AsyncStorage.setItem(
+            'scheduled_tasks_v1',
+            JSON.stringify(updated)
+          );
+
+          try {
+            await apiFetch(
+              `/api/scheduled-tasks/${pendingRescheduleTask.id}`,
+              {
+                method: 'PATCH',
+                body: JSON.stringify({
+                  scheduledAt: newIso,
+                }),
+              }
+            );
+          } catch {
+            await enqueueSync({
+              id: makeId(),
+              type: 'scheduled_task_update',
+              coalesceKey: `scheduled_task_update:${pendingRescheduleTask.id}`,
+              createdAt: nowIso(),
+              payload: {
+                taskId: pendingRescheduleTask.id,
+                scheduledAt: newIso,
+              },
+            });
+          }
+
+          flushSyncQueue();
+
+          setPendingRescheduleTask(null);
+          setRescheduleTargetDate(null);
+        }}
+      >
+        <Text style={{ color: 'green', fontWeight: '700' }}>
+          OK
+        </Text>
+      </Pressable>
+    </View>
+  </View>
+)}
 
 {selectedDate && (
   <View style={{ marginTop: 20 }}>
@@ -424,57 +925,103 @@ setSelectedDate(d.toISOString());
 
     {isCreating && (
   <View style={{ marginBottom: 20 }}>
-    <Text>Select Job:</Text>
-    {Array.isArray(jobs) &&
-  jobs.map(j => (
-      <Pressable
-        key={j.id}
-        onPress={() => setNewTaskJobId(j.id)}
-      >
-        <Text
-          style={{
-            fontWeight:
-              newTaskJobId === j.id ? '700' : '400',
-          }}
-        >
-          {j.name}
-        </Text>
-      </Pressable>
-    ))}
+<Text>Select Job:</Text>
 
-    <Text style={{ marginTop: 10 }}>Select Phase:</Text>
-    {phases.map(p => (
-      <Pressable
-        key={p}
-        onPress={() => setNewTaskPhase(p)}
-      >
-        <Text
-          style={{
-            fontWeight:
-              newTaskPhase === p ? '700' : '400',
-          }}
-        >
-          {p}
-        </Text>
-      </Pressable>
-    ))}
+<TextInput
+  placeholder="Search job..."
+  value={jobSearch}
+  onChangeText={setJobSearch}
+  style={{
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 8,
+  }}
+/>
 
-    <Text style={{ marginTop: 10 }}>Select Crew:</Text>
-    {crews.map(c => (
-      <Pressable
-        key={c.id}
-        onPress={() => setNewTaskCrewId(c.id)}
+{jobSearch.length > 0 &&
+  filteredJobs.slice(0, 8).map(j => (
+    <Pressable
+      key={j.id}
+      onPress={() => {
+        setNewTaskJobId(j.id);
+        setJobSearch(j.name);
+      }}
+      style={{ paddingVertical: 4 }}
+    >
+      <Text
+        style={{
+          fontWeight:
+            newTaskJobId === j.id ? '700' : '400',
+        }}
       >
-        <Text
-          style={{
-            fontWeight:
-              newTaskCrewId === c.id ? '700' : '400',
-          }}
-        >
-          {c.name}
-        </Text>
-      </Pressable>
-    ))}
+        {j.name}
+      </Text>
+    </Pressable>
+  ))}
+
+<Text style={{ marginTop: 10 }}>Select Phase:</Text>
+
+<Pressable
+  onPress={() => setShowPhaseDropdown(!showPhaseDropdown)}
+  style={{
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 6,
+  }}
+>
+  <Text>
+    {newTaskPhase ?? 'Choose phase'}
+  </Text>
+</Pressable>
+
+{showPhaseDropdown &&
+  phases.map(p => (
+    <Pressable
+      key={p}
+      onPress={() => {
+        setNewTaskPhase(p);
+        setShowPhaseDropdown(false);
+      }}
+      style={{ paddingVertical: 4 }}
+    >
+      <Text>{p}</Text>
+    </Pressable>
+  ))}
+
+<Text style={{ marginTop: 10 }}>Select Crew:</Text>
+
+<Pressable
+  onPress={() => setShowCrewDropdown(!showCrewDropdown)}
+  style={{
+    borderWidth: 1,
+    borderColor: '#ddd',
+    padding: 8,
+    borderRadius: 8,
+    marginBottom: 6,
+  }}
+>
+  <Text>
+    {crews.find(c => c.id === newTaskCrewId)?.name ?? 'Choose crew'}
+  </Text>
+</Pressable>
+
+{showCrewDropdown &&
+  crews.map(c => (
+    <Pressable
+      key={c.id}
+      onPress={() => {
+        setNewTaskCrewId(c.id);
+        setShowCrewDropdown(false);
+      }}
+      style={{ paddingVertical: 4 }}
+    >
+      <Text>{c.name}</Text>
+    </Pressable>
+  ))}
 
     <Pressable
       onPress={createTaskFromCalendar}
@@ -487,16 +1034,30 @@ setSelectedDate(d.toISOString());
   </View>
 )}
 
-    {tasksForSelectedDate().map(task => (
-      <Pressable
-        key={task.id}
-        style={styles.card}
-        onPress={() =>
-          setExpandedId(
-            expandedId === task.id ? null : task.id
-          )
-        }
-      >
+{tasksForSelectedDate().map(task => (
+<Pressable
+  key={task.id}
+  style={[
+    styles.card,
+    pendingRescheduleTask?.id === task.id && {
+      borderWidth: 2,
+      borderColor: '#2563eb',
+    },
+  ]}
+    onPress={() =>
+      setExpandedId(
+        expandedId === task.id ? null : task.id
+      )
+    }
+onLongPress={() => {
+  const original = new Date(task.scheduled_at);
+
+  setPendingRescheduleTask(task);
+  setRescheduleHour(original.getHours());
+  setRescheduleMinute(original.getMinutes());
+}}
+  >
+
         <Text style={styles.job}>
           {task.job_name}
         </Text>
@@ -508,6 +1069,29 @@ setSelectedDate(d.toISOString());
         <Text style={styles.meta}>
           {task.phase}
         </Text>
+
+{pendingRescheduleTask?.id === task.id ? (
+  <Text
+    style={{
+      fontSize: 12,
+      marginTop: 6,
+      color: '#2563eb',
+      fontWeight: '700',
+    }}
+  >
+    Select a date
+  </Text>
+) : (
+  <Text
+    style={{
+      fontSize: 12,
+      marginTop: 6,
+      opacity: 0.6,
+    }}
+  >
+    Hold to reschedule
+  </Text>
+)}
 
 {expandedId === task.id && (
   <View style={{ marginTop: 12 }}>
@@ -561,6 +1145,70 @@ setSelectedDate(d.toISOString());
       </Pressable>
     </View>
 
+<View style={{ marginTop: 12 }}>
+  <Pressable
+    onPress={() =>
+      setCrewEditTaskId(
+        crewEditTaskId === task.id ? null : task.id
+      )
+    }
+    style={{
+      borderWidth: 1,
+      borderColor: '#ddd',
+      padding: 8,
+      borderRadius: 8,
+    }}
+  >
+    <Text style={{ fontWeight: '700', color: '#2563eb' }}>
+      {crewEditTaskId === task.id
+        ? 'Close Crew Selector'
+        : 'Change Crew'}
+    </Text>
+  </Pressable>
+
+  {crewEditTaskId === task.id && (
+    <View
+      style={{
+        marginTop: 8,
+        borderWidth: 1,
+        borderColor: '#eee',
+        borderRadius: 8,
+        maxHeight: 200, // ~4–5 rows visible
+      }}
+    >
+      <ScrollView nestedScrollEnabled>
+        {sortedCrews.map(c => (
+          <Pressable
+            key={c.id}
+            onPress={() => {
+              changeTaskCrew(task, c.id);
+              setCrewEditTaskId(null);
+            }}
+            style={{
+              paddingVertical: 10,
+              paddingHorizontal: 12,
+              borderBottomWidth: 0.5,
+              borderColor: '#eee',
+            }}
+          >
+            <Text>{c.name}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+    </View>
+  )}
+</View>
+
+<View style={{ marginTop: 12 }}>
+  <Pressable
+    onPress={() => unscheduleTask(task)}
+  >
+    <Text style={{ color: 'red', fontWeight: '700' }}>
+      Unschedule
+    </Text>
+  </Pressable>
+</View>
+
   </View>
 )}
       </Pressable>
@@ -572,7 +1220,7 @@ setSelectedDate(d.toISOString());
 
       {/* LIST VIEW */}
       {viewMode === 'list' &&
-        [...scheduledTasks]
+  [...filteredTasks]
           .sort((a, b) =>
             (a.job_name ?? '').localeCompare(
               b.job_name ?? ''
@@ -599,18 +1247,19 @@ setSelectedDate(d.toISOString());
               </Text>
             </View>
           ))}
-    </ScrollView>
-  </View>
+    </View>
+  </ScrollView>
+</View>
 );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingTop: 60,
-    paddingHorizontal: 20,
-    backgroundColor: '#fff',
-  },
+container: {
+  flex: 1,
+  paddingTop: 10,
+  paddingHorizontal: 20,
+  backgroundColor: '#fff',
+},
   toggleRow: {
   flexDirection: 'row',
   gap: 20,
@@ -639,7 +1288,7 @@ dateHeader: {
   title: {
     fontSize: 28,
     fontWeight: '700',
-    marginBottom: 20,
+    marginBottom: 4,
   },
   empty: {
     opacity: 0.6,
