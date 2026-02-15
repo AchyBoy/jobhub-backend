@@ -12,6 +12,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 export default function MaterialsScreen() {
@@ -21,10 +22,15 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
   const [materials, setMaterials] = useState<any[]>([]);
   const [phases, setPhases] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
-
+const [supplierMap, setSupplierMap] = useState<Record<string, any>>({});
+const [phasePickerOpen, setPhasePickerOpen] = useState(false);
+const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newName, setNewName] = useState('');
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
+  const [newItemCode, setNewItemCode] = useState<string | null>(null);
   const materialsByPhase = materials.reduce((acc: any, m: any) => {
   if (!acc[m.phase]) acc[m.phase] = [];
   acc[m.phase].push(m);
@@ -35,6 +41,7 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
     loadMaterials();
     loadPhases();
     loadSuppliers();
+    loadSelections();
 
     setTimeout(() => flushSyncQueue(), 50);
   }, [jobId]);
@@ -65,20 +72,71 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
     } catch {}
   }
 
-  async function loadSuppliers() {
-    try {
-      const res = await apiFetch('/api/suppliers');
-      setSuppliers(res?.suppliers ?? []);
-    } catch {}
+async function loadSuppliers() {
+  const key = 'suppliers_v1';
+
+  // 1️⃣ LOAD LOCAL FIRST (instant UI)
+  const local = await AsyncStorage.getItem(key);
+  if (local) {
+    const list = JSON.parse(local);
+    setSuppliers(list);
+
+    const map: Record<string, any> = {};
+    list.forEach((s: any) => {
+      map[s.id] = s;
+    });
+    setSupplierMap(map);
   }
 
+  // 2️⃣ THEN REFRESH FROM API
+  try {
+    const res = await apiFetch('/api/suppliers');
+    const list = res?.suppliers ?? [];
+
+    setSuppliers(list);
+    await AsyncStorage.setItem(key, JSON.stringify(list));
+
+    const map: Record<string, any> = {};
+    list.forEach((s: any) => {
+      map[s.id] = s;
+    });
+    setSupplierMap(map);
+  } catch {}
+}
+
+  async function loadSelections() {
+  try {
+    const savedPhase = await AsyncStorage.getItem('materials:selectedPhase');
+    const savedSupplier = await AsyncStorage.getItem('materials:selectedSupplier');
+
+    if (savedPhase) setNewPhase(savedPhase);
+    if (savedSupplier) setNewSupplierId(savedSupplier);
+  } catch {}
+}
+
   async function createMaterial() {
-    if (!newName || !newPhase) return;
+    if (!newName) return;
+
+if (!newPhase && !newSupplierId) {
+  alert('Please select phase and supplier');
+  return;
+}
+
+if (!newPhase) {
+  alert('Please select phase');
+  return;
+}
+
+if (!newSupplierId) {
+  alert('Please select supplier');
+  return;
+}
 
     const localMaterial = {
       id: makeId(),
       job_id: jobId,
       item_name: newName,
+      item_code: newItemCode,
       phase: newPhase,
       supplier_id: newSupplierId,
       qty_needed: 0,
@@ -95,14 +153,16 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
     try {
       await apiFetch('/api/materials', {
         method: 'POST',
-        body: JSON.stringify({
-          id: localMaterial.id,
-          jobId,
-          itemName: newName,
-          phase: newPhase,
-          supplierId: newSupplierId,
-          qtyNeeded: 0,
-        }),
+body: JSON.stringify({
+  id: localMaterial.id,
+  jobId,
+  itemName: newName,
+  itemCode: newItemCode,
+  phase: newPhase,
+  supplierId: newSupplierId,
+  qtyNeeded: 0,
+}),
+
       });
     } catch {
       await enqueueSync({
@@ -118,7 +178,47 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
 
     flushSyncQueue();
     setNewName('');
+    setNewItemCode(null);
   }
+
+   async function changeSupplier(material: any, supplierId: string) {
+  const updated = materials.map(m =>
+    m.id === material.id
+      ? { ...m, supplier_id: supplierId }
+      : m
+  );
+
+  setMaterials(updated);
+
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/materials/${material.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        supplierId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'material_update',
+      coalesceKey: `material_update:${material.id}`,
+      createdAt: nowIso(),
+      payload: {
+        materialId: material.id,
+        updates: {
+          supplierId,
+        },
+      },
+    });
+  }
+
+  flushSyncQueue();
+}
 
   async function updateQty(material: any, delta: number) {
     const updated = materials.map(m =>
@@ -141,58 +241,188 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
         }),
       });
     } catch {
-      await enqueueSync({
+await enqueueSync({
+  id: makeId(),
+  type: 'material_update',
+  coalesceKey: `material_update:${material.id}`,
+  createdAt: nowIso(),
+  payload: {
+    materialId: material.id,
+    updates: {
+      qtyNeeded: Math.max(0, material.qty_needed + delta),
+    },
+  },
+});
+    }
+
+    flushSyncQueue();
+  }
+
+return (
+  <>
+<Stack.Screen options={{ title: 'Materials' }} />
+<SafeAreaView style={styles.container} edges={['left','right','bottom']}>
+
+  <Pressable
+    onPress={() => {
+      setEditMode(v => !v);
+      setSelectedMaterialIds([]);
+    }}
+    style={{ marginBottom: 12 }}
+  >
+    <Text style={{ fontWeight: '700', color: '#2563eb' }}>
+      {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+    </Text>
+  </Pressable>
+
+  <ScrollView
+      contentContainerStyle={{ paddingBottom: 60 }}
+      showsVerticalScrollIndicator={false}
+      >
+
+{/* SELECTORS */}
+<View style={styles.selectorBar}>
+
+  {/* PHASE */}
+  <Pressable
+    onPress={() => setPhasePickerOpen(!phasePickerOpen)}
+    style={styles.selectorCollapsed}
+  >
+    <Text style={{ fontWeight: '600' }}>
+      Phase: {newPhase || 'Select Phase'}
+    </Text>
+  </Pressable>
+
+  {phasePickerOpen && (
+    <View style={{ marginBottom: 10 }}>
+      {phases.map(p => (
+        <Pressable
+          key={p}
+          onPress={async () => {
+            setNewPhase(p);
+            await AsyncStorage.setItem('materials:selectedPhase', p);
+            setPhasePickerOpen(false);
+          }}
+          style={styles.selectorOption}
+        >
+          <Text>{p}</Text>
+        </Pressable>
+      ))}
+    </View>
+  )}
+
+  {/* SUPPLIER */}
+  <Pressable
+    onPress={() => setSupplierPickerOpen(!supplierPickerOpen)}
+    style={styles.selectorCollapsed}
+  >
+    <Text style={{ fontWeight: '600' }}>
+      Supplier: {supplierMap[newSupplierId || '']?.name || 'Select Supplier'}
+    </Text>
+  </Pressable>
+
+  {supplierPickerOpen && (
+    <View>
+      {suppliers.map(s => (
+        <Pressable
+          key={s.id}
+          onPress={async () => {
+            setNewSupplierId(s.id);
+            await AsyncStorage.setItem('materials:selectedSupplier', s.id);
+            setSupplierPickerOpen(false);
+          }}
+          style={styles.selectorOption}
+        >
+          <Text>{s.name}</Text>
+        </Pressable>
+      ))}
+    </View>
+  )}
+
+</View>
+
+{/* CREATE CARD */}
+<View style={styles.card}>
+  <TextInput
+    placeholder="Item name"
+    value={newName}
+    onChangeText={setNewName}
+    style={styles.input}
+  />
+
+  <TextInput
+    placeholder="Item code (optional)"
+    value={newItemCode ?? ''}
+    onChangeText={setNewItemCode}
+    style={styles.input}
+  />
+
+  <Pressable onPress={createMaterial}>
+    <Text style={styles.addBtn}>Add Material</Text>
+  </Pressable>
+</View>
+
+{editMode && selectedMaterialIds.length > 0 && (
+  <View style={{
+    backgroundColor: '#e0f2fe',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 12
+  }}>
+    <Text style={{ fontWeight: '600', marginBottom: 6 }}>
+      Change supplier for {selectedMaterialIds.length} items:
+    </Text>
+
+    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+      {suppliers.map(s => (
+        <Pressable
+          key={s.id}
+onPress={() => {
+  const updated = materials.map(m =>
+    selectedMaterialIds.includes(m.id)
+      ? { ...m, supplier_id: s.id }
+      : m
+  );
+
+  setMaterials(updated);
+  AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  // fire & forget backend sync (non-blocking)
+  selectedMaterialIds.forEach(id => {
+    const material = materials.find(m => m.id === id);
+    if (!material) return;
+
+    apiFetch(`/api/materials/${material.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ supplierId: s.id }),
+    }).catch(() => {
+      enqueueSync({
         id: makeId(),
         type: 'material_update',
         coalesceKey: `material_update:${material.id}`,
         createdAt: nowIso(),
         payload: {
           materialId: material.id,
-          qtyNeeded: Math.max(0, material.qty_needed + delta),
+          updates: { supplierId: s.id },
         },
       });
-    }
+    });
+  });
 
-    flushSyncQueue();
-  }
-
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={{ paddingBottom: 60 }}>
-
-        <Text style={styles.title}>Materials</Text>
-
-        {/* CREATE */}
-        <View style={styles.card}>
-          <TextInput
-            placeholder="Item name"
-            value={newName}
-            onChangeText={setNewName}
-            style={styles.input}
-          />
-
-          <Text style={styles.label}>Phase</Text>
-          {phases.map(p => (
-            <Pressable key={p} onPress={() => setNewPhase(p)}>
-              <Text style={newPhase === p ? styles.selected : undefined}>
-                {p}
-              </Text>
-            </Pressable>
-          ))}
-
-          <Text style={styles.label}>Supplier</Text>
-          {suppliers.map(s => (
-            <Pressable key={s.id} onPress={() => setNewSupplierId(s.id)}>
-              <Text style={newSupplierId === s.id ? styles.selected : undefined}>
-                {s.name}
-              </Text>
-            </Pressable>
-          ))}
-
-          <Pressable onPress={createMaterial}>
-            <Text style={styles.addBtn}>Add Material</Text>
-          </Pressable>
-        </View>
+  flushSyncQueue();
+  setSelectedMaterialIds([]);
+}}
+          style={styles.selectorChip}
+        >
+          <Text>{s.name}</Text>
+        </Pressable>
+      ))}
+    </ScrollView>
+  </View>
+)}
 
 {/* LIST GROUPED BY PHASE */}
 {Object.keys(materialsByPhase).map(phase => (
@@ -220,36 +450,117 @@ const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({}
     {/* Phase Materials */}
     {expandedPhases[phase] &&
       materialsByPhase[phase].map((material: any) => (
-        <View key={material.id} style={styles.card}>
-          <Text style={styles.itemTitle}>
-            {material.item_name}
-          </Text>
+<View
+  key={material.id}
+  style={[
+    styles.card,
+    editMode &&
+    selectedMaterialIds.includes(material.id) && {
+      borderWidth: 2,
+      borderColor: '#2563eb'
+    }
+  ]}
+>
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    
+{/* LEFT SIDE */}
+<View style={{ flex: 1 }}>
 
-          <Text style={styles.meta}>
-            Qty Needed: {material.qty_needed}
-          </Text>
+  {editMode && (
+    <Pressable
+      onPress={() => {
+        setSelectedMaterialIds(prev =>
+          prev.includes(material.id)
+            ? prev.filter(id => id !== material.id)
+            : [...prev, material.id]
+        );
+      }}
+    >
+      <Text style={{ marginBottom: 6 }}>
+        {selectedMaterialIds.includes(material.id) ? '☑ Selected' : '☐ Select'}
+      </Text>
+    </Pressable>
+  )}
 
-          <View style={{ flexDirection: 'row', gap: 20, marginTop: 8 }}>
-            <Pressable onPress={() => updateQty(material, -1)}>
-              <Text style={styles.qtyBtn}>−</Text>
-            </Pressable>
+  <Text style={styles.itemTitle}>
+    {material.item_name}
+  </Text>
 
-            <Pressable onPress={() => updateQty(material, 1)}>
-              <Text style={styles.qtyBtn}>+</Text>
-            </Pressable>
-          </View>
-        </View>
+  {material.item_code && (
+    <Text style={styles.meta}>
+      Item ID: {material.item_code}
+    </Text>
+  )}
+
+{/* Supplier Name */}
+<Text style={styles.meta}>
+Supplier: {
+  supplierMap[material.supplier_id]?.name || '—'
+}
+</Text>
+</View>
+
+{/* RIGHT SIDE */}
+<View style={{ alignItems: 'center' }}>
+
+  {/* + Button */}
+  <Pressable
+    onPress={() => updateQty(material, 1)}
+    style={{ marginBottom: 4 }}
+  >
+    <Text style={styles.qtyBtn}>+</Text>
+  </Pressable>
+
+  {/* Editable Qty Box */}
+  <TextInput
+    value={String(material.qty_needed)}
+    keyboardType="numeric"
+    onChangeText={(val) => {
+      const num = parseInt(val || '0', 10);
+      if (!isNaN(num)) {
+        updateQty(material, num - material.qty_needed);
+      }
+    }}
+    style={{
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 8,
+      paddingVertical: 4,
+      paddingHorizontal: 10,
+      textAlign: 'center',
+      minWidth: 60,
+      marginBottom: 4,
+    }}
+  />
+
+  {/* − Button */}
+  <Pressable
+    onPress={() => updateQty(material, -1)}
+  >
+    <Text style={styles.qtyBtn}>−</Text>
+  </Pressable>
+
+</View>
+
+  </View>
+</View>
       ))}
   </View>
 ))}
 
-      </ScrollView>
-    </SafeAreaView>
-  );
+    </ScrollView>
+  </SafeAreaView>
+  </>
+);
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: '#fff' },
+container: {
+  flex: 1,
+  paddingHorizontal: 20,
+  paddingTop: 6,   // small gap under header
+  backgroundColor: '#fff',
+},
   title: { fontSize: 24, fontWeight: '700', marginBottom: 16 },
   card: {
     backgroundColor: '#f3f4f6',
@@ -257,6 +568,41 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     marginBottom: 14,
   },
+selectorBar: {
+  marginTop: 4,
+  marginBottom: 12,
+},
+
+selectorChip: {
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  backgroundColor: '#e5e7eb',
+  borderRadius: 999,
+  marginRight: 8,
+},
+selectorCollapsed: {
+  backgroundColor: '#e5e7eb',
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  borderRadius: 12,
+  marginBottom: 6,
+},
+
+selectorOption: {
+  backgroundColor: '#f3f4f6',
+  padding: 10,
+  borderRadius: 10,
+  marginBottom: 6,
+},
+
+selectorChipActive: {
+  backgroundColor: '#2563eb',
+},
+
+selectorTextActive: {
+  color: '#fff',
+  fontWeight: '600',
+},
   input: {
     borderWidth: 1,
     borderColor: '#ddd',

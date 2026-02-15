@@ -20,6 +20,23 @@ type SyncItem =
   }
   | {
     id: string;
+    type: 'supplier_upsert';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      id: string;
+      name: string;
+      isInternal?: boolean;
+      contacts: {
+        id: string;
+        type: string;
+        label?: string | null;
+        value?: string | null;
+      }[];
+    };
+  }
+  | {
+    id: string;
     type: 'inspection_upsert';
     coalesceKey: string;
     createdAt: string;
@@ -148,7 +165,7 @@ type SyncItem =
     createdAt: string;
     payload: {
       materialId: string;
-      qtyNeeded: number;
+      updates: any;
     };
   };
 
@@ -233,6 +250,13 @@ export async function flushSyncQueue() {
           body: JSON.stringify(item.payload),
         });
       }
+
+      if (item.type === 'supplier_upsert') {
+  await apiFetch('/api/suppliers', {
+    method: 'POST',
+    body: JSON.stringify(item.payload),
+  });
+}
 
             if (item.type === 'job_supervisors_set') {
         const { jobId, supervisorIds } = item.payload;
@@ -356,13 +380,11 @@ if (item.type === 'material_create') {
 }
 
 if (item.type === 'material_update') {
-  const { materialId, qtyNeeded } = item.payload;
+  const { materialId, updates } = item.payload;
 
   await apiFetch(`/api/materials/${materialId}`, {
     method: 'PATCH',
-    body: JSON.stringify({
-      qtyNeeded,
-    }),
+    body: JSON.stringify(updates),
   });
 }
     } catch (err) {

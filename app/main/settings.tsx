@@ -63,6 +63,13 @@ export default function SettingsScreen() {
 
 <Pressable
   style={[styles.item, { marginTop: 12 }]}
+  onPress={() => router.push('/main/directories/suppliers')}
+>
+  <Text style={styles.itemText}>Suppliers</Text>
+</Pressable>
+
+<Pressable
+  style={[styles.item, { marginTop: 12 }]}
   onPress={() => router.push('/main/directories/permit-companies')}
 >
   <Text style={styles.itemText}>Permit Companies</Text>

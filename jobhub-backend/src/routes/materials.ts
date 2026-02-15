@@ -96,7 +96,17 @@ router.post("/", async (req: any, res) => {
 router.patch("/:id", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
   const { id } = req.params;
-  const { qtyNeeded } = req.body;
+
+  const {
+    qtyNeeded,
+    supplierId,
+    phase,
+    itemName,
+    itemCode,
+    status,
+    dateOrdered,
+    dateDelivered,
+  } = req.body;
 
   if (!tenantId) return res.status(403).json({ error: "Missing tenant" });
 
@@ -104,11 +114,30 @@ router.patch("/:id", async (req: any, res) => {
     await pool.query(
       `
       UPDATE materials
-      SET qty_needed = COALESCE($1, qty_needed)
-      WHERE id = $2
-      AND tenant_id = $3
+      SET
+        qty_needed     = COALESCE($1, qty_needed),
+        supplier_id    = COALESCE($2, supplier_id),
+        phase          = COALESCE($3, phase),
+        item_name      = COALESCE($4, item_name),
+        item_code      = COALESCE($5, item_code),
+        status         = COALESCE($6, status),
+        date_ordered   = COALESCE($7, date_ordered),
+        date_delivered = COALESCE($8, date_delivered)
+      WHERE id = $9
+      AND tenant_id = $10
       `,
-      [qtyNeeded ?? null, id, tenantId]
+      [
+        qtyNeeded ?? null,
+        supplierId ?? null,
+        phase ?? null,
+        itemName ?? null,
+        itemCode ?? null,
+        status ?? null,
+        dateOrdered ?? null,
+        dateDelivered ?? null,
+        id,
+        tenantId,
+      ]
     );
 
     res.json({ success: true });
