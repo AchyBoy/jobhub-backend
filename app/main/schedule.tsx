@@ -11,6 +11,7 @@ import {
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
+import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 
 export default function ScheduleScreen() {
@@ -401,14 +402,16 @@ const taskDate = new Date(t.scheduled_at);
   });
 }
 
-  return (
-<View style={styles.container}>
+return (
+<>
+  <Stack.Screen options={{ title: 'Schedule' }} />
+  <View style={styles.container}>
   <ScrollView
     showsVerticalScrollIndicator={false}
     keyboardShouldPersistTaps="handled"
     contentContainerStyle={{ paddingBottom: 40 }}
   >
-    <Text style={styles.title}>Schedule</Text>
+
 
   {/* FILTER TOGGLE */}
   <Pressable
@@ -1249,7 +1252,8 @@ onLongPress={() => {
           ))}
     </View>
   </ScrollView>
-</View>
+  </View>
+</>
 );
 }
 

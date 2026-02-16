@@ -1,14 +1,23 @@
 // JobHub/app/main/_layout.tsx
 import { View, StyleSheet } from 'react-native';
-import { Slot } from 'expo-router';
+import { Stack } from 'expo-router';
 import BottomTabs from '../../components/BottomTabs';
 
 export default function MainLayout() {
   return (
     <View style={styles.container}>
-<View style={styles.content}>
-  <Slot />
-</View>
+      <View style={styles.content}>
+<Stack
+  screenOptions={{
+    headerBackTitle: 'Back',
+  }}
+>
+  <Stack.Screen
+    name="index"
+    options={{ title: 'Job Hub' }}
+  />
+</Stack>
+      </View>
 
       <BottomTabs />
     </View>

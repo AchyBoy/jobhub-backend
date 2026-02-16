@@ -4,7 +4,13 @@ import { View, Text, StyleSheet } from 'react-native';
 export default function MainHome() {
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Job Hub</Text>
+      <Text style={styles.subtitle}>
+        Future automations and convenience features will live here.
+      </Text>
+
+      <Text style={styles.comingSoon}>
+        Coming soon.
+      </Text>
     </View>
   );
 }
@@ -12,12 +18,20 @@ export default function MainHome() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingTop: 60,
-    paddingHorizontal: 20,
+    paddingTop: 80,
+    paddingHorizontal: 24,
     backgroundColor: '#fff',
+    alignItems: 'center',
   },
-  title: {
-    fontSize: 28,
+  subtitle: {
+    fontSize: 16,
+    textAlign: 'center',
+    opacity: 0.7,
+    marginBottom: 12,
+  },
+  comingSoon: {
+    fontSize: 18,
     fontWeight: '700',
+    color: '#2563eb',
   },
 });

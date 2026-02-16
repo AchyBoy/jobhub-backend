@@ -17,6 +17,7 @@ type JobNote = {
 
 export default function SendLinks() {
   const { id } = useLocalSearchParams();
+const [jobName, setJobName] = useState<string>('');
 
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [activePhase, setActivePhase] = useState<string | null>(null);
@@ -43,6 +44,7 @@ useEffect(() => {
   if (!id) return;
   loadPhases();
   loadNotes();
+  loadJob();
 }, [id]);
 
   async function loadNotes() {
@@ -66,6 +68,32 @@ function buildCrewUrl() {
   return `${APP_BASE_URL}/crew/job/${id}?${params.toString()}`;
 }
 
+async function loadJob() {
+  try {
+    const stored = await AsyncStorage.getItem(`job:${id}:meta`);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed?.name) {
+        setJobName(parsed.name);
+        return;
+      }
+    }
+  } catch {}
+
+  // fallback to backend
+  try {
+    const res = await fetch(`${APP_BASE_URL}/api/job/${id}`);
+    const json = await res.json();
+    if (json?.job?.name) {
+      setJobName(json.job.name);
+      await AsyncStorage.setItem(
+        `job:${id}:meta`,
+        JSON.stringify({ name: json.job.name })
+      );
+    }
+  } catch {}
+}
+
 function sendCrewLink() {
   const url = buildCrewUrl();
   if (!url) return;
@@ -75,13 +103,18 @@ function sendCrewLink() {
 
   return (
     <>
-      <Stack.Screen options={{ title: 'Send Links' }} />
+      <Stack.Screen
+  options={{
+    title: jobName
+      ? `Send ${jobName} Links`
+      : 'Send Links',
+  }}
+/>
 
       <SafeAreaView style={styles.container}>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        <Text style={styles.title}>Send Crew Link</Text>
-        <Text style={styles.sub}>Job ID: {id}</Text>
+<Text style={styles.sub}>Job ID: {id}</Text>
 
 {phases.length > 0 ? (
   <>

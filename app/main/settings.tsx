@@ -15,23 +15,14 @@ export default function SettingsScreen() {
 >
   <Text style={styles.title}>Settings</Text>
 
-<Text style={styles.sectionHeader}>App</Text>
+<Text style={styles.sectionHeader}>Directories</Text>
 
 <Pressable
   style={styles.item}
-  onPress={() => router.push('/main/edit-tabs')}
->
-  <Text style={styles.itemText}>Customize Tabs</Text>
-</Pressable>
-
-<Pressable
-  style={[styles.item, { marginTop: 16 }]}
   onPress={() => router.push('/main/phases')}
 >
   <Text style={styles.itemText}>Manage Phases</Text>
 </Pressable>
-
-<Text style={styles.sectionHeader}>Directories</Text>
 
 <Pressable
   style={[styles.item, { marginTop: 12 }]}

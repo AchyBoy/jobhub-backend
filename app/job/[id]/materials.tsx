@@ -6,9 +6,11 @@ import {
   ScrollView,
   Pressable,
   TextInput,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
+import { Alert } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
@@ -21,6 +23,7 @@ import * as Linking from 'expo-linking';
 export default function MaterialsScreen() {
   const { id } = useLocalSearchParams();
   const jobId = id as string;
+  const [ordering, setOrdering] = useState(false);
 const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
   const [materials, setMaterials] = useState<any[]>([]);
   const [jobName, setJobName] = useState<string>('');
@@ -35,7 +38,14 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
   const [newItemCode, setNewItemCode] = useState<string | null>(null);
+  function isOrdered(material: any) {
+  return (
+    (material.qty_ordered ?? 0) >= material.qty_needed &&
+    material.qty_needed > 0
+  );
+}
   const materialsByPhase = materials.reduce((acc: any, m: any) => {
+
   if (!acc[m.phase]) acc[m.phase] = [];
   acc[m.phase].push(m);
   return acc;
@@ -160,39 +170,37 @@ if (!newSupplierId) {
     };
 
     const updated = [...materials, localMaterial];
-    setMaterials(updated);
-    await AsyncStorage.setItem(
-      `job:${jobId}:materials`,
-      JSON.stringify(updated)
-    );
+setMaterials(updated);
 
-    try {
-      await apiFetch('/api/materials', {
-        method: 'POST',
-body: JSON.stringify({
-  id: localMaterial.id,
-  jobId,
-  itemName: newName,
-  itemCode: newItemCode,
-  phase: newPhase,
-  supplierId: newSupplierId,
-  qtyNeeded: 0,
-}),
+// fire & forget (do NOT await)
+AsyncStorage.setItem(
+  `job:${jobId}:materials`,
+  JSON.stringify(updated)
+);
 
-      });
-    } catch {
-      await enqueueSync({
-        id: makeId(),
-        type: 'material_create',
-        coalesceKey: `material_create:${localMaterial.id}`,
-        createdAt: nowIso(),
-        payload: {
-          ...localMaterial,
-        },
-      });
-    }
+apiFetch('/api/materials', {
+  method: 'POST',
+  body: JSON.stringify({
+    id: localMaterial.id,
+    jobId,
+    itemName: newName,
+    itemCode: newItemCode,
+    phase: newPhase,
+    supplierId: newSupplierId,
+    qtyNeeded: 0,
+  }),
+}).catch(() => {
+  enqueueSync({
+    id: makeId(),
+    type: 'material_create',
+    coalesceKey: `material_create:${localMaterial.id}`,
+    createdAt: nowIso(),
+    payload: {
+      ...localMaterial,
+    },
+  });
+});
 
-    flushSyncQueue();
     setNewName('');
     setNewItemCode(null);
   }
@@ -236,43 +244,41 @@ body: JSON.stringify({
   flushSyncQueue();
 }
 
-  async function updateQty(material: any, delta: number) {
-    const updated = materials.map(m =>
-      m.id === material.id
-        ? { ...m, qty_needed: Math.max(0, m.qty_needed + delta) }
-        : m
-    );
+async function updateQty(material: any, delta: number) {
+  const newQty = Math.max(
+    0,
+    materials.find(m => m.id === material.id)?.qty_needed + delta
+  );
 
-    setMaterials(updated);
-    await AsyncStorage.setItem(
-      `job:${jobId}:materials`,
-      JSON.stringify(updated)
-    );
+  const updated = materials.map(m =>
+    m.id === material.id
+      ? { ...m, qty_needed: newQty }
+      : m
+  );
 
-    try {
-      await apiFetch(`/api/materials/${material.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          qtyNeeded: Math.max(0, material.qty_needed + delta),
-        }),
-      });
-    } catch {
-await enqueueSync({
-  id: makeId(),
-  type: 'material_update',
-  coalesceKey: `material_update:${material.id}`,
-  createdAt: nowIso(),
-  payload: {
-    materialId: material.id,
-    updates: {
-      qtyNeeded: Math.max(0, material.qty_needed + delta),
-    },
-  },
-});
-    }
+  setMaterials(updated);
+  AsyncStorage.setItem(`job:${jobId}:materials`, JSON.stringify(updated));
 
-    flushSyncQueue();
+  try {
+    await apiFetch(`/api/materials/${material.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ qtyNeeded: newQty }),
+    });
+  } catch {
+    enqueueSync({
+      id: makeId(),
+      type: 'material_update',
+      coalesceKey: `material_update:${material.id}`,
+      createdAt: nowIso(),
+      payload: {
+        materialId: material.id,
+        updates: { qtyNeeded: newQty },
+      },
+    });
   }
+
+  flushSyncQueue();
+}
 
 async function openInMail(args: {
   supplierEmail: string;
@@ -415,7 +421,13 @@ const body =
 
 return (
   <>
-<Stack.Screen options={{ title: 'Materials' }} />
+<Stack.Screen
+  options={{
+    title: jobName
+      ? `${jobName} - Materials`
+      : 'Materials',
+  }}
+/>
 <SafeAreaView style={styles.container} edges={['left','right','bottom']}>
 
   <Pressable
@@ -512,16 +524,44 @@ return (
     style={styles.input}
   />
 
-  <Pressable onPress={createMaterial}>
+  <Pressable
+  onPress={() => {
+    Keyboard.dismiss();
+    createMaterial();
+  }}
+>
     <Text style={styles.addBtn}>Add Material</Text>
   </Pressable>
 </View>
 
 {/* ORDER BUTTON */}
 <Pressable
-  onPress={handleCreateOrder}
+  disabled={ordering}
+onPress={() => {
+  if (ordering) return;
+
+  Alert.alert(
+    'Confirm Order',
+    'Are you sure you want to generate and send this material order?',
+    [
+      {
+        text: 'Cancel',
+        style: 'cancel',
+      },
+      {
+        text: 'Confirm',
+        style: 'destructive',
+        onPress: async () => {
+          setOrdering(true);
+          await handleCreateOrder();
+          setOrdering(false);
+        },
+      },
+    ]
+  );
+}}
   style={{
-    backgroundColor: '#2563eb',
+    backgroundColor: ordering ? '#94a3b8' : '#2563eb',
     padding: 14,
     borderRadius: 14,
     marginBottom: 16,
@@ -529,7 +569,9 @@ return (
   }}
 >
   <Text style={{ color: '#fff', fontWeight: '700' }}>
-    Order Materials For Selected Phase/Supplier
+    {ordering
+      ? 'Processing...'
+      : 'Order Materials For Selected Phase/Supplier'}
   </Text>
 </Pressable>
 
@@ -623,14 +665,20 @@ onPress={() => {
       materialsByPhase[phase].map((material: any) => (
 <View
   key={material.id}
-  style={[
-    styles.card,
-    editMode &&
-    selectedMaterialIds.includes(material.id) && {
-      borderWidth: 2,
-      borderColor: '#2563eb'
-    }
-  ]}
+style={[
+  styles.card,
+
+  isOrdered(material) && {
+    backgroundColor: '#dcfce7',
+    opacity: 0.7,
+  },
+
+  editMode &&
+  selectedMaterialIds.includes(material.id) && {
+    borderWidth: 2,
+    borderColor: '#2563eb'
+  }
+]}
 >
   <View style={{ flexDirection: 'row', alignItems: 'center' }}>
     
@@ -657,6 +705,12 @@ onPress={() => {
     {material.item_name}
   </Text>
 
+  {isOrdered(material) && (
+  <Text style={{ color: '#15803d', fontWeight: '700', marginTop: 4 }}>
+    ✓ Ordered
+  </Text>
+)}
+
   {material.item_code && (
     <Text style={styles.meta}>
       Item ID: {material.item_code}
@@ -675,16 +729,19 @@ Supplier: {
 <View style={{ alignItems: 'center' }}>
 
   {/* + Button */}
+{editMode && !isOrdered(material) && (
   <Pressable
     onPress={() => updateQty(material, 1)}
     style={{ marginBottom: 4 }}
   >
     <Text style={styles.qtyBtn}>+</Text>
   </Pressable>
+  )}
 
   {/* Editable Qty Box */}
-  <TextInput
-    value={String(material.qty_needed)}
+<TextInput
+  editable={editMode && !isOrdered(material)}
+  value={String(material.qty_needed)}
     keyboardType="numeric"
     onChangeText={(val) => {
       const num = parseInt(val || '0', 10);
@@ -705,11 +762,13 @@ Supplier: {
   />
 
   {/* − Button */}
+{editMode && !isOrdered(material) && (
   <Pressable
     onPress={() => updateQty(material, -1)}
   >
     <Text style={styles.qtyBtn}>−</Text>
   </Pressable>
+  )}
 
 </View>
 

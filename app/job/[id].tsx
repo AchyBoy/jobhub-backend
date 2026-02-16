@@ -175,9 +175,7 @@ async function assignCrew(crewId: string, phase: string) {
   showsVerticalScrollIndicator={false}
 >
 
-  <Text style={styles.title}>{jobName}</Text>
-
-  <Text style={styles.sub}>Job ID: {id}</Text>
+<Text style={styles.sub}>Job ID: {id}</Text>
 
 <View style={styles.actions}>
 

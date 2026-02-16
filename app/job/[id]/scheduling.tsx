@@ -2,10 +2,10 @@
 import {
   View,
   Text,
-  TextInput, // add this
   StyleSheet,
   ScrollView,
   Pressable,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, Stack } from 'expo-router';
@@ -20,22 +20,19 @@ export default function SchedulingScreen() {
   const [crews, setCrews] = useState<any[]>([]);
   const [phases, setPhases] = useState<string[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
-  const [scheduledAt, setScheduledAt] = useState<string>(
-  new Date().toISOString()
-);
+  const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
+const [editingPhase, setEditingPhase] = useState<string | null>(null);
+const [phaseToSchedule, setPhaseToSchedule] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (!id) return;
-    loadAll();
-  }, [id]);
 
- async function loadAll() {
-  await Promise.all([
-    loadCrews(),
-    loadPhases(),
-    loadAssignments(),
-  ]);
-}
+useEffect(() => {
+  if (!id) return;
+
+  loadCrews();        // fire immediately
+  loadPhases();       // fire immediately
+  loadAssignments();  // fire immediately
+}, [id]);
+
 
   async function loadCrews() {
     const local = await AsyncStorage.getItem('crews_v1');
@@ -60,19 +57,43 @@ export default function SchedulingScreen() {
     } catch {}
   }
 
-  async function loadAssignments() {
-    const local = await AsyncStorage.getItem(`job:${id}:crews`);
-    if (local) setAssignments(JSON.parse(local));
+async function loadAssignments() {
+  const key = `job:${id}:crews`;
 
-    try {
-      const res = await apiFetch(`/api/jobs/${id}/crews`);
-      setAssignments(res.assignments ?? []);
-      await AsyncStorage.setItem(
-        `job:${id}:crews`,
-        JSON.stringify(res.assignments ?? [])
-      );
-    } catch {}
+  // 1️⃣ Load local immediately (instant UI)
+  const local = await AsyncStorage.getItem(key);
+  if (local) {
+    setAssignments(JSON.parse(local));
   }
+
+  // 2️⃣ Refresh from API in background
+  try {
+    const res = await apiFetch(`/api/scheduled-tasks?jobId=${id}`);
+
+    const normalizedRaw = (res.tasks ?? []).map((t: any) => ({
+      id: t.id,
+      crewId: t.crewId ?? t.crew_id,
+      phase: t.phase,
+      scheduledAt: t.scheduledAt ?? t.scheduled_at,
+    }));
+
+    // keep only latest per phase
+    const byPhase: Record<string, any> = {};
+    normalizedRaw.forEach(t => {
+      byPhase[t.phase] = t;
+    });
+
+    const normalized = Object.values(byPhase);
+
+    setAssignments(normalized);
+
+    await AsyncStorage.setItem(
+      key,
+      JSON.stringify(normalized)
+    );
+
+  } catch {}
+}
 
 async function assignCrew(
   crewId: string,
@@ -80,14 +101,17 @@ async function assignCrew(
 ) {
   if (!id) return;
 
-  const newAssignment = {
-    id: Date.now().toString(),
-    crewId,
-    phase,
-    scheduledAt,
-  };
+const scheduledAt = new Date().toISOString();
 
-  const updated = [...assignments, newAssignment];
+const newAssignment = {
+  id: Date.now().toString(),
+  crewId,
+  phase,
+  scheduledAt,
+};
+
+  const filtered = assignments.filter(a => a.phase !== phase);
+const updated = [...filtered, newAssignment];
 
   // 1️⃣ Immediate UI update
   setAssignments(updated);
@@ -133,22 +157,6 @@ try {
 
       <SafeAreaView style={styles.container}>
       <Text style={styles.title}>Scheduling</Text>
-      <View style={{ marginBottom: 20 }}>
-  <Text style={{ fontWeight: '700', marginBottom: 6 }}>
-    Scheduled Date/Time (ISO)
-  </Text>
-
-  <TextInput
-    value={scheduledAt}
-    onChangeText={setScheduledAt}
-    style={{
-      borderWidth: 1,
-      borderColor: '#ccc',
-      padding: 8,
-      borderRadius: 8,
-    }}
-  />
-</View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         {phases.map(phase => {
@@ -157,7 +165,18 @@ try {
           );
 
           return (
-            <View key={phase} style={styles.phaseCard}>
+            <Pressable
+  key={phase}
+  style={styles.phaseCard}
+  onLongPress={() => {
+    if (phaseAssignments.length === 0) {
+      Alert.alert('Select crew first');
+      return;
+    }
+
+    setPhaseToSchedule(phase);
+  }}
+>
               <Text style={styles.phaseTitle}>{phase}</Text>
 
               {phaseAssignments.length === 0 && (
@@ -178,19 +197,72 @@ try {
                 );
               })}
 
-              <View style={{ marginTop: 8 }}>
-                {crews.map(c => (
-                  <Pressable
-                    key={`${phase}-${c.id}`}
-                    onPress={() => assignCrew(c.id, phase)}
-                  >
-                    <Text style={styles.assignText}>
-                      + Assign {c.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
+{/* ASSIGN SECTION */}
+
+{phaseAssignments.length === 0 && (
+  <>
+    <Pressable
+      onPress={() =>
+        setExpandedPhase(prev =>
+          prev === phase ? null : phase
+        )
+      }
+      style={{ marginTop: 10 }}
+    >
+      <Text style={styles.assignText}>
+        + Assign Crew
+      </Text>
+    </Pressable>
+
+    {expandedPhase === phase &&
+      crews.map(c => (
+        <Pressable
+          key={`${phase}-${c.id}`}
+          onPress={() => {
+            assignCrew(c.id, phase);
+            setExpandedPhase(null);
+          }}
+        >
+          <Text style={styles.assignText}>
+            {c.name}
+          </Text>
+        </Pressable>
+      ))}
+  </>
+)}
+
+{phaseAssignments.length > 0 && (
+  <View style={{ marginTop: 8 }}>
+    <Pressable
+      onPress={() =>
+        setEditingPhase(prev =>
+          prev === phase ? null : phase
+        )
+      }
+      style={{ position: 'absolute', top: 0, right: 0 }}
+    >
+      <Text style={{ fontSize: 12, color: '#2563eb' }}>
+        {editingPhase === phase ? 'Done' : 'Edit'}
+      </Text>
+    </Pressable>
+
+    {editingPhase === phase &&
+      crews.map(c => (
+        <Pressable
+          key={`${phase}-edit-${c.id}`}
+          onPress={async () => {
+  await assignCrew(c.id, phase);
+  setEditingPhase(null);
+}}
+        >
+          <Text style={styles.assignText}>
+            Change to {c.name}
+          </Text>
+        </Pressable>
+      ))}
+  </View>
+)}
+            </Pressable>
           );
         })}
       </ScrollView>

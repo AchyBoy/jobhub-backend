@@ -5,7 +5,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { supabase } from '../../src/lib/supabase';
 import { useEffect, useState } from 'react';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, Stack } from 'expo-router';
 import React from 'react';
 
 type Job = {
@@ -23,6 +23,8 @@ const [sortMode, setSortMode] = useState<
   'alpha-asc' | 'alpha-desc' | 'recent'
 >('recent');
 
+const [sortButtonLabel, setSortButtonLabel] = useState('Sort Jobs');
+
 async function loadJobs() {
   const {
     data: { session },
@@ -30,32 +32,45 @@ async function loadJobs() {
 
   if (!session) return;
 
-  try {
-    // 1️⃣ Get tenant first (needed for cache key)
-    const me = await apiFetch('/api/tenant/me');
-    const tenantId = me.tenantId;
-    if (!tenantId) return;
+  // 🔥 STEP 1 — Try to get cached tenantId first
+  let tenantId = await AsyncStorage.getItem('tenantId');
 
-    const cacheKey = `jobs:${tenantId}`;
+  // 🔥 STEP 2 — If missing, fetch once and cache it
+  if (!tenantId) {
+    try {
+      const me = await apiFetch('/api/tenant/me');
+      tenantId = me?.tenantId;
 
-    // 2️⃣ 🔥 Load cached jobs immediately (instant UI)
-    const cached = await AsyncStorage.getItem(cacheKey);
-    if (cached) {
-      setJobs(JSON.parse(cached));
+      if (tenantId) {
+        await AsyncStorage.setItem('tenantId', tenantId);
+      }
+    } catch {
+      return; // cannot continue without tenant
     }
-
-    // 3️⃣ Fetch backend in background
-    const res = await apiFetch('/api/job');
-
-    setJobs(res.jobs ?? []);
-
-    await AsyncStorage.setItem(
-      cacheKey,
-      JSON.stringify(res.jobs ?? [])
-    );
-  } catch (err) {
-    console.warn('Using cached jobs (offline mode)');
   }
+
+  if (!tenantId) return;
+
+  const cacheKey = `jobs:${tenantId}`;
+
+  // 🔥 STEP 3 — LOAD CACHE IMMEDIATELY (no network)
+  const cached = await AsyncStorage.getItem(cacheKey);
+  if (cached) {
+    setJobs(JSON.parse(cached));
+  }
+
+  // 🔥 STEP 4 — Network refresh (non-blocking)
+  apiFetch('/api/job')
+    .then(async (res) => {
+      setJobs(res.jobs ?? []);
+      await AsyncStorage.setItem(
+        cacheKey,
+        JSON.stringify(res.jobs ?? [])
+      );
+    })
+    .catch(() => {
+      console.warn('Offline — using cached jobs');
+    });
 }
 
 async function refreshJobsSilently() {
@@ -82,8 +97,7 @@ async function refreshJobsSilently() {
   // Reload every time tab is focused
 useFocusEffect(
   React.useCallback(() => {
-    // Only refresh from backend silently
-    refreshJobsSilently();
+    loadJobs(); // always load cache first
   }, [])
 );
 
@@ -107,6 +121,30 @@ useFocusEffect(
   return sorted;
 }
 
+function handleSortPress() {
+  const order: any = {
+    recent: 'alpha-asc',
+    'alpha-asc': 'alpha-desc',
+    'alpha-desc': 'recent',
+  };
+
+  const next = order[sortMode];
+  setSortMode(next);
+
+  const label =
+    next === 'recent'
+      ? 'Recent'
+      : next === 'alpha-asc'
+      ? 'A–Z'
+      : 'Z–A';
+
+  setSortButtonLabel(label);
+
+  setTimeout(() => {
+    setSortButtonLabel('Sort Jobs');
+  }, 2000);
+}
+
 function openJob(job: Job) {
   router.push({
     pathname: `/job/${job.id}`,
@@ -115,45 +153,29 @@ function openJob(job: Job) {
 }
 
 return (
-<View style={styles.container}>
+<>
+  <Stack.Screen options={{ title: 'Jobs' }} />
+  <View style={styles.container}>
+
 <View style={styles.headerRow}>
 
   {/* LEFT */}
-<View style={[styles.headerSide, { marginTop: 6 }]}>
-  <Pressable
-    style={styles.addBtn}
-    onPress={() => router.push('/main/add-job')}
-  >
-      <Text style={styles.addText}>Add Job+</Text>
+  <View style={styles.headerSide}>
+    <Pressable
+      style={styles.addBtn}
+      onPress={() => router.push('/main/add-job')}
+    >
+      <Text style={styles.addText}>Add Job</Text>
     </Pressable>
   </View>
 
-  {/* CENTER */}
-  <View style={styles.headerCenter}>
-    <Text style={styles.title}>Jobs</Text>
-  </View>
-
   {/* RIGHT */}
-<View style={[styles.headerSide, { alignItems: 'flex-end', marginTop: -4 }]}>
-  <Text style={styles.sortLabel}>Sort Jobs</Text>
+  <View style={styles.headerSide}>
     <Pressable
       style={styles.addBtn}
-      onPress={() => {
-        const order: any = {
-          recent: 'alpha-asc',
-          'alpha-asc': 'alpha-desc',
-          'alpha-desc': 'recent',
-        };
-        setSortMode(order[sortMode]);
-      }}
+      onPress={() => handleSortPress()}
     >
-      <Text style={styles.addText}>
-        {sortMode === 'recent'
-          ? 'Recent'
-          : sortMode === 'alpha-asc'
-          ? 'A–Z'
-          : 'Z–A'}
-      </Text>
+      <Text style={styles.addText}>{sortButtonLabel}</Text>
     </Pressable>
   </View>
 
@@ -191,6 +213,7 @@ return (
         />
       )}
     </View>
+  </>
   );
 }
 
@@ -216,13 +239,6 @@ headerSide: {
 headerCenter: {
   flex: 1,
   alignItems: 'center',
-},
-
-sortLabel: {
-  fontSize: 11,
-  fontWeight: '600',
-  color: '#64748b',
-  marginBottom: 2,
 },
 
 addBtn: {

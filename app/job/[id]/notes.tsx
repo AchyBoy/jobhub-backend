@@ -482,17 +482,18 @@ await syncNotesToBackend(id, updated);
 
   return (
     <>
-  <Stack.Screen options={{ title: 'Notes' }} />
+  <Stack.Screen
+  options={{
+    title: jobName ? jobName : 'Job',
+  }}
+/>
 
 <SafeAreaView
   style={styles.container}
   edges={['left', 'right', 'bottom']}
 >
 
-  <Text style={styles.title}>
-  {jobName ? jobName : 'Job Notes'}
-</Text>
-  <Text style={styles.sub}>Job ID: {id}</Text>
+<Text style={styles.sub}>Job ID: {id}</Text>
 
   <Pressable
     onPress={() => setEditMode(v => !v)}

@@ -101,8 +101,11 @@ return (
     {/* Auth screens */}
     <Stack.Screen name="(auth)" options={{ headerShown: false }} />
 
-    {/* Main tab shell */}
-    <Stack.Screen name="main" />
+{/* Main tab shell */}
+<Stack.Screen
+  name="main"
+  options={{ headerShown: false }}
+/>
 
     {/* Drill-down screens (need back + home) */}
     <Stack.Screen
