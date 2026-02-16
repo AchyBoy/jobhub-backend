@@ -167,6 +167,20 @@ type SyncItem =
       materialId: string;
       updates: any;
     };
+  }
+| {
+    id: string;
+    type: 'order_create';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      orderId: string;
+      jobId: string;
+      phase: string;
+      supplierId: string;
+      items: { materialId: string; qtyOrdered: number }[];
+      pdfUri: string;
+    };
   };
 
 const QUEUE_KEY = 'sync_queue_v1';
@@ -385,6 +399,40 @@ if (item.type === 'material_update') {
   await apiFetch(`/api/materials/${materialId}`, {
     method: 'PATCH',
     body: JSON.stringify(updates),
+  });
+}
+
+if (item.type === 'order_create') {
+  const {
+    orderId,
+    jobId,
+    phase,
+    supplierId,
+    items,
+    pdfUri,
+  } = item.payload;
+
+  const form = new FormData();
+
+  form.append('orderId', orderId);
+  form.append('jobId', jobId);
+  form.append('phase', phase);
+  form.append('supplierId', supplierId);
+  form.append('itemsJson', JSON.stringify(items));
+  form.append('bccTenant', 'true');
+
+  form.append('pdf', {
+    uri: pdfUri,
+    name: 'order.pdf',
+    type: 'application/pdf',
+  } as any);
+
+  await apiFetch('/api/orders/create', {
+    method: 'POST',
+    body: form,
+    headers: {
+      'Content-Type': 'multipart/form-data',
+    },
   });
 }
     } catch (err) {

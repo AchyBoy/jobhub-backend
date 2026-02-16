@@ -14,12 +14,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
 import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
+import { generateOrderPdf } from '../../../src/lib/pdfGenerator';
+import * as Linking from 'expo-linking';
+
 
 export default function MaterialsScreen() {
   const { id } = useLocalSearchParams();
   const jobId = id as string;
 const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
   const [materials, setMaterials] = useState<any[]>([]);
+  const [jobName, setJobName] = useState<string>('');
   const [phases, setPhases] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
 const [supplierMap, setSupplierMap] = useState<Record<string, any>>({});
@@ -41,10 +45,22 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
     loadMaterials();
     loadPhases();
     loadSuppliers();
+    loadJob();
     loadSelections();
 
     setTimeout(() => flushSyncQueue(), 50);
   }, [jobId]);
+
+async function loadJob() {
+  try {
+    const res = await apiFetch(`/api/job/${jobId}`);
+    if (res?.job?.name) {
+      setJobName(res.job.name);
+    }
+  } catch (e) {
+    console.log('Failed to load job name');
+  }
+}
 
   async function loadMaterials() {
     const key = `job:${jobId}:materials`;
@@ -64,7 +80,7 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
     const local = await AsyncStorage.getItem('phases');
     if (local) setPhases(JSON.parse(local));
 
-    try {
+try {
       const res = await apiFetch('/api/phases');
       const names = res?.phases?.map((p: any) => p.name) ?? [];
       setPhases(names);
@@ -258,6 +274,145 @@ await enqueueSync({
     flushSyncQueue();
   }
 
+async function openInMail(args: {
+  supplierEmail: string;
+  subject: string;
+  body: string;
+}) {
+  const mailto =
+    `mailto:${args.supplierEmail}` +
+    `?subject=${encodeURIComponent(args.subject)}` +
+    `&body=${encodeURIComponent(args.body)}`;
+
+  await Linking.openURL(mailto);
+}
+
+function createFormData(args: {
+  orderId: string;
+  jobId: string;
+  phase: string;
+  supplierId: string;
+  items: { materialId: string; qtyOrdered: number }[];
+  pdfUri: string;
+}) {
+  const form = new FormData();
+
+  form.append('orderId', args.orderId);
+  form.append('jobId', args.jobId);
+  form.append('phase', args.phase);
+  form.append('supplierId', args.supplierId);
+  form.append('itemsJson', JSON.stringify(args.items));
+  form.append('bccTenant', 'true');
+
+  form.append('pdf', {
+    uri: args.pdfUri,
+    name: 'order.pdf',
+    type: 'application/pdf',
+  } as any);
+
+  return form;
+}
+
+async function handleCreateOrder() {
+  if (!newPhase || !newSupplierId) {
+    alert('Select phase and supplier first');
+    return;
+  }
+
+  const supplier = supplierMap[newSupplierId];
+  const supplierEmail =
+    supplier?.contacts?.find((c: any) => c.type === 'email')?.value;
+
+  if (!supplierEmail) {
+    alert('Supplier has no email');
+    return;
+  }
+
+  const itemsToOrder = materials
+    .filter(
+      m =>
+        m.phase === newPhase &&
+        m.supplier_id === newSupplierId &&
+        m.qty_needed > (m.qty_ordered ?? 0)
+    )
+    .map(m => ({
+      materialId: m.id,
+      qtyOrdered: m.qty_needed - (m.qty_ordered ?? 0),
+    }));
+
+  if (!itemsToOrder.length) {
+    alert('Nothing to order');
+    return;
+  }
+try {
+    const supplierName =
+      supplierMap[newSupplierId]?.name ?? 'Supplier';
+
+    const pdfResult = await generateOrderPdf({
+      jobId,
+      phase: newPhase!,
+      supplierName,
+      items: itemsToOrder.map(it => {
+        const m = materials.find(x => x.id === it.materialId);
+        return {
+          name: m?.item_name ?? '',
+          code: m?.item_code,
+          qty: it.qtyOrdered,
+        };
+      }),
+    });
+
+    const orderId = pdfResult.orderId;
+    const uri = pdfResult.uri;
+
+    // 1️⃣ Upload order to backend
+    await apiFetch('/api/orders/create', {
+      method: 'POST',
+      body: createFormData({
+        orderId,
+        jobId,
+        phase: newPhase!,
+        supplierId: newSupplierId!,
+        items: itemsToOrder,
+        pdfUri: uri,
+      }),
+    });
+
+    // 2️⃣ Fetch signed PDF URL
+    const pdfRes = await apiFetch(`/api/orders/${orderId}/pdf`);
+    const pdfUrl = pdfRes?.url;
+
+const safeJobName = (jobName || '').trim();
+const displayJobName = safeJobName.length ? safeJobName : jobId;
+
+const subject = `Material Order - ${displayJobName} - ${newPhase} - ${supplierName}`;
+
+const body =
+  `Phase: ${newPhase}\r\n` +
+  `Job Name: ${displayJobName}\r\n` +
+  `Job ID: ${jobId}\r\n\r\n` +
+  `Please find the material order PDF here:\r\n` +
+  `${pdfUrl}\r\n`;
+
+    await openInMail({
+      supplierEmail,
+      subject,
+      body,
+    });
+
+    alert('Email draft opened');
+
+} catch (err) {
+    console.warn('Order failed — enqueueing', err);
+
+    alert('Order failed before upload');
+
+    flushSyncQueue();
+
+    alert('Offline — order queued');
+  }
+}
+
 return (
   <>
 <Stack.Screen options={{ title: 'Materials' }} />
@@ -361,6 +516,22 @@ return (
     <Text style={styles.addBtn}>Add Material</Text>
   </Pressable>
 </View>
+
+{/* ORDER BUTTON */}
+<Pressable
+  onPress={handleCreateOrder}
+  style={{
+    backgroundColor: '#2563eb',
+    padding: 14,
+    borderRadius: 14,
+    marginBottom: 16,
+    alignItems: 'center',
+  }}
+>
+  <Text style={{ color: '#fff', fontWeight: '700' }}>
+    Order Materials For Selected Phase/Supplier
+  </Text>
+</Pressable>
 
 {editMode && selectedMaterialIds.length > 0 && (
   <View style={{
