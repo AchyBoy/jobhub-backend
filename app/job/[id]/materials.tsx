@@ -20,11 +20,14 @@ import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 import { generateOrderPdf } from '../../../src/lib/pdfGenerator';
 import * as Linking from 'expo-linking';
+import { useRef } from 'react';
+import { useRouter } from 'expo-router';
 
 
 export default function MaterialsScreen() {
   const { id } = useLocalSearchParams();
   const jobId = id as string;
+const router = useRouter();
   const [ordering, setOrdering] = useState(false);
 const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
 const [expandedSuppliers, setExpandedSuppliers] = useState<Record<string, boolean>>({});
@@ -41,16 +44,30 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
   const [newItemCode, setNewItemCode] = useState<string | null>(null);
-function isOrdered(material: any) {
-  const fulfilled =
-    (material.qty_ordered ?? 0) +
-    (material.qty_from_storage ?? 0);
+const [addMode, setAddMode] = useState(false);
 
-  return (
-    fulfilled >= (material.qty_needed ?? 0) &&
-    (material.qty_needed ?? 0) > 0
-  );
+const [orderPreviewOpen, setOrderPreviewOpen] = useState(false);
+const [pendingOrderItems, setPendingOrderItems] = useState<
+  { materialId: string; qtyOrdered: number }[]
+>([]);
+
+function isPhaseOrdered(material: any) {
+  const needed = material.qty_needed ?? 0;
+  const ordered = material.qty_ordered ?? 0;
+  const fromStorage = material.qty_from_storage ?? 0;
+
+  const fulfilled = ordered + fromStorage;
+
+  return fulfilled >= needed && needed > 0;
 }
+
+function isStorageOrdered(material: any) {
+  const fromStorage = material.qty_from_storage ?? 0;
+  const onHand = material.qty_on_hand_applied ?? 0;
+
+  return fromStorage > 0 && fromStorage === onHand;
+}
+
 // Group by phase
 const materialsByPhase = materials.reduce((acc: any, m: any) => {
   if (!acc[m.phase]) acc[m.phase] = [];
@@ -229,6 +246,7 @@ apiFetch('/api/materials', {
 
     setNewName('');
     setNewItemCode(null);
+    setAddMode(false);
   }
 
    async function changeSupplier(material: any, supplierId: string) {
@@ -273,9 +291,10 @@ apiFetch('/api/materials', {
 async function applyOnHand(material: any, delta: number) {
   const current = material.qty_on_hand_applied ?? 0;
 
-  const maxAllowed =
-    (material.qty_needed ?? 0) -
-    (material.qty_ordered ?? 0);
+const maxAllowed =
+  (material.qty_needed ?? 0) -
+  (material.qty_ordered ?? 0) -
+  (material.qty_from_storage ?? 0);
 
   const newValue = Math.max(
     0,
@@ -318,6 +337,41 @@ async function applyOnHand(material: any, delta: number) {
   flushSyncQueue();
 }
 
+function updateQtyLocal(materialId: string, delta: number) {
+  setMaterials(prev =>
+    prev.map(m => {
+      if (m.id !== materialId) return m;
+
+      const current = m.qty_needed ?? 0;
+      const newQty = Math.max(0, current + delta);
+
+      return { ...m, qty_needed: newQty };
+    })
+  );
+}
+
+function updateOnHandLocal(materialId: string, delta: number) {
+  setMaterials(prev =>
+    prev.map(m => {
+      if (m.id !== materialId) return m;
+
+      const current = m.qty_on_hand_applied ?? 0;
+
+const maxAllowed =
+  (m.qty_needed ?? 0) -
+  (m.qty_ordered ?? 0) -
+  (m.qty_from_storage ?? 0);
+
+      const newValue = Math.max(
+        0,
+        Math.min(current + delta, maxAllowed)
+      );
+
+      return { ...m, qty_on_hand_applied: newValue };
+    })
+  );
+}
+
 async function updateQty(material: any, delta: number) {
   const current = material.qty_needed ?? 0;
   const newQty = Math.max(0, current + delta);
@@ -348,6 +402,87 @@ async function updateQty(material: any, delta: number) {
       payload: {
         materialId: material.id,
         updates: { qtyNeeded: newQty },
+      },
+    });
+  }
+
+  flushSyncQueue();
+}
+
+const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
+const holdDelayRef = useRef<NodeJS.Timeout | null>(null);
+
+useEffect(() => {
+  return () => {
+    if (holdDelayRef.current) {
+      clearTimeout(holdDelayRef.current);
+    }
+    if (holdIntervalRef.current) {
+      clearInterval(holdIntervalRef.current);
+    }
+  };
+}, []);
+
+function startHold(action: () => void) {
+  // Always clear any existing timers first
+  stopHold();
+
+  action(); // single tap
+
+  holdDelayRef.current = setTimeout(() => {
+    holdIntervalRef.current = setInterval(() => {
+      action();
+    }, 80);
+  }, 250);
+}
+
+function stopHold() {
+  if (holdDelayRef.current) {
+    clearTimeout(holdDelayRef.current);
+  }
+
+  if (holdIntervalRef.current) {
+    clearInterval(holdIntervalRef.current);
+  }
+
+  holdDelayRef.current = null;
+  holdIntervalRef.current = null;
+}
+
+function isStorageLocked(material: any) {
+  return (material.qty_from_storage ?? 0) > 0;
+}
+
+async function setQtyDirect(material: any, newQty: number) {
+  const safeQty = Math.max(0, newQty);
+
+  const updated = materials.map(m =>
+    m.id === material.id
+      ? { ...m, qty_needed: safeQty }
+      : m
+  );
+
+  setMaterials(updated);
+
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/materials/${material.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ qtyNeeded: safeQty }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'material_update',
+      coalesceKey: `material_update:${material.id}`,
+      createdAt: nowIso(),
+      payload: {
+        materialId: material.id,
+        updates: { qtyNeeded: safeQty },
       },
     });
   }
@@ -413,33 +548,34 @@ let itemsToOrder: { materialId: string; qtyOrdered: number }[] = [];
 
 if (supplier?.isInternal) {
   // Internal / On-Hand flow
-  itemsToOrder = materials
-    .filter(
-      m =>
-        m.phase === newPhase &&
-        (m.qty_on_hand_applied ?? 0) > 0
-    )
+itemsToOrder = materials
+  .filter(
+    m =>
+      m.phase === newPhase &&
+      (m.qty_on_hand_applied ?? 0) > 0 &&
+      (m.qty_from_storage ?? 0) < (m.qty_on_hand_applied ?? 0)
+  )
     .map(m => ({
       materialId: m.id,
       qtyOrdered: m.qty_on_hand_applied ?? 0,
     }));
 } else {
-  // Normal supplier flow
-  itemsToOrder = materials
-    .filter(
-      m =>
-        m.phase === newPhase &&
-        m.supplier_id === newSupplierId &&
-        m.qty_needed >
-  ((m.qty_ordered ?? 0) + (m.qty_from_storage ?? 0))
-    )
-    .map(m => ({
-      materialId: m.id,
-qtyOrdered:
-  m.qty_needed -
-  (m.qty_ordered ?? 0) -
-  (m.qty_from_storage ?? 0),
-    }));
+// Normal supplier flow
+itemsToOrder = materials
+  .filter(
+    m =>
+      m.phase === newPhase &&
+      m.supplier_id === newSupplierId &&
+      (m.qty_needed ?? 0) >
+        ((m.qty_ordered ?? 0) + (m.qty_from_storage ?? 0))
+  )
+  .map(m => ({
+    materialId: m.id,
+    qtyOrdered:
+      (m.qty_needed ?? 0) -
+      (m.qty_ordered ?? 0) -
+      (m.qty_from_storage ?? 0),
+  }));
 }
 
   if (!itemsToOrder.length) {
@@ -450,18 +586,34 @@ try {
     const supplierName =
       supplierMap[newSupplierId]?.name ?? 'Supplier';
 
+      //pdf generation logic
 const { orderId, uri } = await generateOrderPdf({
   jobId,
   phase: newPhase!,
   supplierName,
-  items: itemsToOrder.map(it => {
-    const m = materials.find(x => x.id === it.materialId);
-    return {
-      name: m?.item_name ?? '',
-      code: m?.item_code,
-      qty: it.qtyOrdered,
-    };
-  }),
+items: itemsToOrder.map(it => {
+  const m = materials.find(x => x.id === it.materialId);
+
+  let pdfQty = 0;
+
+  if (supplier?.isInternal) {
+    // Internal → show exactly what is being pulled
+    pdfQty = m?.qty_on_hand_applied ?? 0;
+  } else {
+    // External supplier → subtract on-hand
+    pdfQty = Math.max(
+      0,
+      (m?.qty_needed ?? 0) -
+      (m?.qty_on_hand_applied ?? 0)
+    );
+  }
+
+  return {
+    name: m?.item_name ?? '',
+    code: m?.item_code,
+    qty: pdfQty,
+  };
+}),
 });
 
     // 1️⃣ Upload order to backend
@@ -501,17 +653,22 @@ const body =
 
     // ✅ Mark supplier items as ordered
 if (!supplier?.isInternal) {
+
+  const now = new Date().toISOString();
+
   const updated = materials.map(m => {
     const orderedItem = itemsToOrder.find(
       it => it.materialId === m.id
     );
 
     if (orderedItem) {
-      return {
-        ...m,
-        qty_ordered:
-          (m.qty_ordered ?? 0) + orderedItem.qtyOrdered,
-      };
+return {
+  ...m,
+  qty_ordered:
+    (m.qty_ordered ?? 0) + orderedItem.qtyOrdered,
+  date_ordered: now,
+  order_id: orderId,
+};
     }
 
     return m;
@@ -525,56 +682,82 @@ if (!supplier?.isInternal) {
 
   // persist to backend
 for (const it of itemsToOrder) {
-  const material = materials.find(m => m.id === it.materialId);
+  const material = updated.find(m => m.id === it.materialId);
   if (!material) continue;
 
-  const newQtyOrdered =
-    (material.qty_ordered ?? 0) + it.qtyOrdered;
+const newQtyOrdered =
+  material.qty_ordered ?? 0;
 
-  await apiFetch(`/api/materials/${it.materialId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      qtyOrdered: newQtyOrdered,
-    }),
-  });
+await apiFetch(`/api/materials/${it.materialId}`, {
+  method: 'PATCH',
+  body: JSON.stringify({
+    qtyOrdered: newQtyOrdered,
+    dateOrdered: now,
+    orderId,
+  }),
+});
 }
 }
 
-    // Mark internal items as ordered
+// Mark internal items as ordered
 if (supplier?.isInternal) {
+
   const updated = materials.map(m => {
     if (
       m.phase === newPhase &&
       (m.qty_on_hand_applied ?? 0) > 0
     ) {
-      return {
-        ...m,
-        qty_from_storage:
-          (m.qty_from_storage ?? 0) + (m.qty_on_hand_applied ?? 0),
-        qty_on_hand_applied: 0,
-      };
+const now = new Date().toISOString();
+
+return {
+  ...m,
+  qty_from_storage: m.qty_on_hand_applied ?? 0,
+  date_storage_ordered: now,
+  storage_order_id: orderId,
+};
     }
     return m;
   });
 
   setMaterials(updated);
+
   await AsyncStorage.setItem(
     `job:${jobId}:materials`,
     JSON.stringify(updated)
   );
+
+    // 🔥 Persist storage changes to backend
+  // Only patch items that were part of this storage "order"
+  for (const it of itemsToOrder) {
+    const m = updated.find(x => x.id === it.materialId);
+    if (!m) continue;
+
+const now = new Date().toISOString();
+
+await apiFetch(`/api/materials/${m.id}`, {
+  method: 'PATCH',
+  body: JSON.stringify({
+    qtyFromStorage: m.qty_from_storage ?? 0,
+    dateStorageOrdered: now,
+    storageOrderId: orderId,
+  }),
+});
+
+  }
+    await loadMaterials(); // 🔥 force refresh so UI reflects new DB state
+
 }
 
 alert('Email draft opened');
 
 } catch (err) {
-    console.warn('Order failed — enqueueing', err);
+  console.warn('Order failed — not enqueueing duplicate order', err);
 
-    alert('Order failed before upload');
+  alert('Order failed before upload');
 
-    flushSyncQueue();
-
-    alert('Offline — order queued');
-  }
+  // 🔒 Do NOT enqueue order creation here.
+  // Orders are only persisted after successful upload.
+}
 }
 
 return (
@@ -594,17 +777,40 @@ return (
   >
     <View style={styles.container}>
 
+<View
+  style={{
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  }}
+>
+
+  {/* Edit Mode Button */}
   <Pressable
     onPress={() => {
       setEditMode(v => !v);
       setSelectedMaterialIds([]);
     }}
-    style={{ marginBottom: 12 }}
   >
     <Text style={{ fontWeight: '700', color: '#2563eb' }}>
       {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
     </Text>
   </Pressable>
+
+  {/* Add Button */}
+<Pressable
+  onPress={() => {
+    setEditMode(false);
+    setAddMode(v => !v);
+  }}
+>
+<Text style={{ fontWeight: '700', color: '#16a34a' }}>
+  {addMode ? 'Cancel Add' : 'Add Items'}
+</Text>
+  </Pressable>
+
+</View>
 
   <ScrollView
       contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
@@ -672,31 +878,141 @@ return (
 
 </View>
 
+{orderPreviewOpen && (
+  <View
+    style={{
+      backgroundColor: '#f8fafc',
+      borderRadius: 16,
+      padding: 16,
+      marginBottom: 16,
+      borderWidth: 1,
+      borderColor: '#e2e8f0',
+    }}
+  >
+    <Text style={{ fontWeight: '700', marginBottom: 10 }}>
+      Order Preview
+    </Text>
+
+    <ScrollView
+      style={{ maxHeight: 220 }}
+      showsVerticalScrollIndicator
+    >
+      {pendingOrderItems.map(it => {
+        const m = materials.find(x => x.id === it.materialId);
+        return (
+          <View key={it.materialId} style={{ marginBottom: 8 }}>
+            <Text style={{ fontWeight: '600' }}>
+              {m?.item_name}
+            </Text>
+            <Text style={{ fontSize: 12, opacity: 0.6 }}>
+              ID: {m?.item_code ?? '—'}
+            </Text>
+            <Text style={{ fontSize: 12 }}>
+              Qty: {it.qtyOrdered}
+            </Text>
+          </View>
+        );
+      })}
+    </ScrollView>
+
+    <View
+      style={{
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        marginTop: 14,
+      }}
+    >
+      <Pressable onPress={() => setOrderPreviewOpen(false)}>
+        <Text style={{ color: '#64748b', fontWeight: '600' }}>
+          Cancel
+        </Text>
+      </Pressable>
+
+<Pressable
+  onPress={() => {
+    Alert.alert(
+      'Send Order?',
+      'This will generate the PDF and email draft.',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Confirm',
+          style: 'destructive',
+          onPress: async () => {
+            setOrderPreviewOpen(false);
+            setOrdering(true);
+            await handleCreateOrder();
+            setOrdering(false);
+          },
+        },
+      ]
+    );
+  }}
+>
+        <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+          Send Order
+        </Text>
+      </Pressable>
+    </View>
+  </View>
+)}
+
 {/* ORDER BUTTON */}
 <Pressable
-  disabled={ordering}
+  disabled={
+  ordering ||
+  !newPhase ||
+  !newSupplierId
+}
 onPress={() => {
   if (ordering) return;
+  if (!newPhase || !newSupplierId) return;
 
-  Alert.alert(
-    'Confirm Order',
-    'Are you sure you want to generate and send this material order?',
-    [
-      {
-        text: 'Cancel',
-        style: 'cancel',
-      },
-      {
-        text: 'Confirm',
-        style: 'destructive',
-        onPress: async () => {
-          setOrdering(true);
-          await handleCreateOrder();
-          setOrdering(false);
-        },
-      },
-    ]
-  );
+  const supplier = supplierMap[newSupplierId];
+
+  let itemsToOrder: { materialId: string; qtyOrdered: number }[] = [];
+
+  if (supplier?.isInternal) {
+    itemsToOrder = materials
+      .filter(
+        m =>
+          m.phase === newPhase &&
+          (m.qty_on_hand_applied ?? 0) > 0 &&
+          (m.qty_from_storage ?? 0) < (m.qty_on_hand_applied ?? 0)
+      )
+      .map(m => ({
+        materialId: m.id,
+        qtyOrdered: m.qty_on_hand_applied ?? 0,
+      }));
+  } else {
+    itemsToOrder = materials
+      .filter(
+        m =>
+          m.phase === newPhase &&
+          m.supplier_id === newSupplierId &&
+          (m.qty_needed ?? 0) >
+            ((m.qty_ordered ?? 0) + (m.qty_from_storage ?? 0))
+      )
+      .map(m => ({
+        materialId: m.id,
+        qtyOrdered:
+          (m.qty_needed ?? 0) -
+          (m.qty_ordered ?? 0) -
+          (m.qty_from_storage ?? 0),
+      }));
+  }
+
+  if (!itemsToOrder.length) {
+    alert('Nothing to order');
+    return;
+  }
+
+setPendingOrderItems(itemsToOrder);
+setOrderPreviewOpen(true);
+
 }}
   style={{
     backgroundColor: ordering ? '#94a3b8' : '#2563eb',
@@ -706,11 +1022,15 @@ onPress={() => {
     alignItems: 'center',
   }}
 >
-  <Text style={{ color: '#fff', fontWeight: '700' }}>
-    {ordering
-      ? 'Processing...'
-      : 'Order Materials For Selected Phase/Supplier'}
-  </Text>
+
+<Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center' }}>
+  {ordering
+    ? 'Processing...'
+    : newPhase && newSupplierId
+      ? `Order ${newPhase} → ${supplierMap[newSupplierId]?.name ?? ''}`
+      : 'Select Phase & Supplier'}
+</Text>
+
 </Pressable>
 
 {editMode && selectedMaterialIds.length > 0 && (
@@ -806,9 +1126,9 @@ onPress={() => {
 style={[
   styles.card,
 
-(material.qty_on_hand_applied ?? 0) > 0 && {
-  backgroundColor: '#f0fdf4',
-},
+  isPhaseOrdered(material) && {
+    backgroundColor: '#dcfce7', // stronger green
+  },
 
   editMode &&
   selectedMaterialIds.includes(material.id) && {
@@ -842,10 +1162,39 @@ style={[
     {material.item_name}
   </Text>
 
-  {isOrdered(material) && (
-  <Text style={{ color: '#15803d', fontWeight: '700', marginTop: 4 }}>
-    ✓ Ordered
-  </Text>
+{isPhaseOrdered(material) && (
+  <View style={{ marginTop: 4 }}>
+    <Text style={{ color: '#15803d', fontWeight: '700' }}>
+      ✓ Ordered
+    </Text>
+
+    {material.date_ordered && (
+      <Text style={{ fontSize: 12, opacity: 0.6 }}>
+        {new Date(material.date_ordered).toLocaleDateString()}
+      </Text>
+    )}
+
+    {material.order_id && (
+      <Pressable
+        onPress={async () => {
+          try {
+            const res = await apiFetch(
+              `/api/orders/${material.order_id}/pdf`
+            );
+            if (res?.url) {
+              await Linking.openURL(res.url);
+            }
+          } catch {
+            alert('Unable to load PDF');
+          }
+        }}
+      >
+        <Text style={{ color: '#2563eb', fontSize: 12 }}>
+          View PDF
+        </Text>
+      </Pressable>
+    )}
+  </View>
 )}
 
   {material.item_code && (
@@ -868,71 +1217,116 @@ style={[
 {/* RIGHT SIDE */}
 <View style={{ alignItems: 'center' }}>
 
-{editMode && !isOrdered(material) && (() => {
+{editMode && !isPhaseOrdered(material) && (() => {
   const onHand = material.qty_on_hand_applied ?? 0;
 
   return (
-    <>
-      {/* + Needed Button */}
+<>
+  {/* QTY DISPLAY */}
+<TextInput
+  editable
+  defaultValue={String(material.qty_needed ?? 0)}
+  keyboardType="numeric"
+  onEndEditing={(e) => {
+    const val = e.nativeEvent.text;
+    const num = parseInt(val || '0', 10);
+
+    if (!isNaN(num)) {
+      setQtyDirect(material, num);
+    }
+  }}
+  style={{
+    borderWidth: 1,
+    borderColor: '#ddd',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    textAlign: 'center',
+    minWidth: 80,
+    marginBottom: 12,
+    fontWeight: '700',
+    fontSize: 16,
+  }}
+/>
+
+  {/* +/- ROW */}
+  <View
+    style={{
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      width: 120, // controls spacing distance
+      marginBottom: 12,
+    }}
+  >
+    <Pressable
+      onPressIn={() => startHold(() => updateQtyLocal(material.id, -1))}
+      onPressOut={stopHold}
+      style={{
+        paddingHorizontal: 18,
+        paddingVertical: 6,
+      }}
+    >
+      <Text style={[styles.qtyBtn, { fontSize: 26 }]}>−</Text>
+    </Pressable>
+
+    <Pressable
+      onPressIn={() => startHold(() => updateQtyLocal(material.id, 1))}
+      onPressOut={stopHold}
+      style={{
+        paddingHorizontal: 18,
+        paddingVertical: 6,
+      }}
+    >
+      <Text style={[styles.qtyBtn, { fontSize: 26 }]}>+</Text>
+    </Pressable>
+  </View>
+
+  {/* On-Hand stays unchanged */}
+<View style={{ marginTop: 8 }}>
+  <Text style={{ fontSize: 12, opacity: 0.6 }}>
+    On-Hand: {onHand}
+  </Text>
+
+  {isStorageLocked(material) ? (
+    <Text style={{ fontSize: 12, color: '#15803d', marginTop: 4 }}>
+      On-Hand already ordered from storage
+    </Text>
+  ) : (
+    <View style={{ flexDirection: 'row', gap: 14 }}>
       <Pressable
-        onPress={() => updateQty(material, 1)}
-        style={{ marginBottom: 4 }}
+onPressIn={() => startHold(() => updateOnHandLocal(material.id, 1))}
+onPressOut={() => {
+  stopHold();
+  const updatedMaterial = materials.find(m => m.id === material.id);
+  if (updatedMaterial) {
+    applyOnHand(updatedMaterial, 0); // persist final value
+  }
+}}
       >
-        <Text style={styles.qtyBtn}>+</Text>
-      </Pressable>
-
-      {/* Qty Box */}
-      <TextInput
-        editable
-        value={String(material.qty_needed ?? 0)}
-        keyboardType="numeric"
-        onChangeText={(val) => {
-          const num = parseInt(val || '0', 10);
-          if (!isNaN(num)) {
-            updateQty(material, num - (material.qty_needed ?? 0));
-          }
-        }}
-        style={{
-          borderWidth: 1,
-          borderColor: '#ddd',
-          borderRadius: 8,
-          paddingVertical: 4,
-          paddingHorizontal: 10,
-          textAlign: 'center',
-          minWidth: 60,
-          marginBottom: 4,
-        }}
-      />
-
-      {/* − Needed Button */}
-      <Pressable
-        onPress={() => updateQty(material, -1)}
-      >
-        <Text style={styles.qtyBtn}>−</Text>
-      </Pressable>
-
-      {/* On-Hand Controls */}
-      <View style={{ marginTop: 8 }}>
-        <Text style={{ fontSize: 12, opacity: 0.6 }}>
-          On-Hand: {onHand}
+        <Text style={{ color: '#16a34a', fontWeight: '700' }}>
+          + On-Hand
         </Text>
+      </Pressable>
 
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          <Pressable onPress={() => applyOnHand(material, 1)}>
-            <Text style={{ color: '#16a34a', fontWeight: '700' }}>
-              + On-Hand
-            </Text>
-          </Pressable>
-
-          <Pressable onPress={() => applyOnHand(material, -1)}>
-            <Text style={{ color: '#dc2626', fontWeight: '700' }}>
-              − On-Hand
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-    </>
-  );
+      <Pressable
+onPressIn={() => startHold(() => updateOnHandLocal(material.id, -1))}
+onPressOut={() => {
+  stopHold();
+  const updatedMaterial = materials.find(m => m.id === material.id);
+  if (updatedMaterial) {
+    applyOnHand(updatedMaterial, 0); // persist final value
+  }
+}}
+      >
+        <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+          − On-Hand
+        </Text>
+      </Pressable>
+    </View>
+  )}
+</View>
+</>
+);
 })()}
 
 </View>
@@ -971,10 +1365,53 @@ style={[
     {expandedSuppliers.__internal && (
       <View style={{ marginTop: 10 }}>
         {internalMaterials.map((material: any) => (
-          <View key={material.id} style={styles.card}>
+          <View
+  key={material.id}
+  style={[
+    styles.card,
+isStorageOrdered(material) && {
+  backgroundColor: '#dcfce7',
+}
+  ]}
+>
             <Text style={styles.itemTitle}>
               {material.item_name}
             </Text>
+
+{isStorageOrdered(material) && (
+  <View style={{ marginTop: 4 }}>
+    <Text style={{ color: '#15803d', fontWeight: '700' }}>
+      ✓ Ordered
+    </Text>
+
+    {material.date_storage_ordered && (
+      <Text style={{ fontSize: 12, opacity: 0.6 }}>
+        {new Date(material.date_storage_ordered).toLocaleDateString()}
+      </Text>
+    )}
+
+{material.storage_order_id && (
+  <Pressable
+    onPress={async () => {
+      try {
+        const res = await apiFetch(
+          `/api/orders/${material.storage_order_id}/pdf`
+        );
+        if (res?.url) {
+          await Linking.openURL(res.url);
+        }
+      } catch {
+        alert('Unable to load PDF');
+      }
+    }}
+  >
+    <Text style={{ color: '#2563eb', fontSize: 12 }}>
+      View PDF
+    </Text>
+  </Pressable>
+)}
+  </View>
+)}
 
             {material.item_code && (
               <Text style={styles.meta}>
@@ -983,9 +1420,8 @@ style={[
             )}
 
             <Text style={styles.meta}>
-              Pulled From Storage: {
-  (material.qty_from_storage ?? 0) +
-  (material.qty_on_hand_applied ?? 0)
+Pulled From Storage: {
+  material.qty_from_storage ?? 0
 }
             </Text>
 
@@ -1040,10 +1476,53 @@ style={[
           {isExpanded && (
             <View style={{ marginTop: 10 }}>
               {supplierMaterials.map((material: any) => (
-                <View key={material.id} style={styles.card}>
+                <View
+  key={material.id}
+  style={[
+    styles.card,
+isPhaseOrdered(material) && {
+  backgroundColor: '#dcfce7',
+}
+  ]}
+>
                   <Text style={styles.itemTitle}>
                     {material.item_name}
                   </Text>
+
+{isPhaseOrdered(material) && (
+  <View style={{ marginTop: 4 }}>
+    <Text style={{ color: '#15803d', fontWeight: '700' }}>
+      ✓ Ordered
+    </Text>
+
+    {material.date_ordered && (
+      <Text style={{ fontSize: 12, opacity: 0.6 }}>
+        {new Date(material.date_ordered).toLocaleDateString()}
+      </Text>
+    )}
+
+    {material.order_id && (
+      <Pressable
+        onPress={async () => {
+          try {
+            const res = await apiFetch(
+              `/api/orders/${material.order_id}/pdf`
+            );
+            if (res?.url) {
+              await Linking.openURL(res.url);
+            }
+          } catch {
+            alert('Unable to load PDF');
+          }
+        }}
+      >
+        <Text style={{ color: '#2563eb', fontSize: 12 }}>
+          View PDF
+        </Text>
+      </Pressable>
+    )}
+  </View>
+)}
 
                   {material.item_code && (
                     <Text style={styles.meta}>
@@ -1076,8 +1555,8 @@ style={[
 )}
 
     </ScrollView>
-    {editMode && (
-  <View style={styles.bottomAddBar}>
+{addMode && (
+<View style={styles.bottomAddBar}>
     <TextInput
       placeholder="Item name"
       value={newName}
@@ -1104,7 +1583,8 @@ style={[
       </Text>
     </Pressable>
   </View>
-)}
+  )}
+
       </View>
   </KeyboardAvoidingView>
 </SafeAreaView>

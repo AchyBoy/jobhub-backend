@@ -21,8 +21,16 @@ export async function apiFetch(
 
   const headers: HeadersInit = {
     ...(options.headers || {}),
-    'Content-Type': 'application/json',
   };
+
+  // Only set JSON content-type when body is NOT FormData.
+  // For FormData, let fetch set the multipart boundary automatically.
+  const isFormData =
+    typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+  if (!isFormData && !('Content-Type' in headers)) {
+    headers['Content-Type'] = 'application/json';
+  }
 
   if (session?.access_token) {
     headers.Authorization = `Bearer ${session.access_token}`;

@@ -106,9 +106,13 @@ const {
   status,
   dateOrdered,
   dateDelivered,
+  dateStorageOrdered,   // ✅ NEW
   qtyOnHandApplied,
   qtyFromStorage,
   qtyOrdered,
+  orderId,
+  storageOrderId,   // ✅ NEW
+
 } = req.body;
 
   if (!tenantId) return res.status(403).json({ error: "Missing tenant" });
@@ -118,35 +122,41 @@ const {
       `
 UPDATE materials
 SET
-  qty_needed = COALESCE($1::int, qty_needed),
-  supplier_id = COALESCE($2, supplier_id),
-  phase = COALESCE($3, phase),
-  item_name = COALESCE($4, item_name),
-  item_code = COALESCE($5, item_code),
-  status = COALESCE($6, status),
-  date_ordered = COALESCE($7, date_ordered),
-  date_delivered = COALESCE($8, date_delivered),
-  qty_on_hand_applied = COALESCE($9::int, qty_on_hand_applied),
-  qty_from_storage = COALESCE($10::int, qty_from_storage),
-  qty_ordered = COALESCE($11::int, qty_ordered)
-WHERE id = $12
-AND tenant_id = $13
+qty_needed = COALESCE($1::int, qty_needed),
+supplier_id = COALESCE($2, supplier_id),
+phase = COALESCE($3, phase),
+item_name = COALESCE($4, item_name),
+item_code = COALESCE($5, item_code),
+status = COALESCE($6, status),
+date_ordered = COALESCE($7, date_ordered),
+date_delivered = COALESCE($8, date_delivered),
+qty_on_hand_applied = COALESCE($9::int, qty_on_hand_applied),
+qty_from_storage = COALESCE($10::int, qty_from_storage),
+qty_ordered = COALESCE($11::int, qty_ordered),
+order_id = COALESCE($12, order_id),
+date_storage_ordered = COALESCE($13, date_storage_ordered),
+storage_order_id = COALESCE($14, storage_order_id)
+WHERE id = $15
+AND tenant_id = $16
       `,
-      [
-        qtyNeeded ?? null,           // $1
-        supplierId ?? null,          // $2
-        phase ?? null,               // $3
-        itemName ?? null,            // $4
-        itemCode ?? null,            // $5
-        status ?? null,              // $6
-        dateOrdered ?? null,         // $7
-        dateDelivered ?? null,       // $8
-        qtyOnHandApplied ?? null,    // $9
-        qtyFromStorage ?? null,      // $10
-        qtyOrdered ?? null, // $11
-        id,                          // $12
-        tenantId,                    // $13
-      ]
+[
+  qtyNeeded ?? null,        // $1
+  supplierId ?? null,       // $2
+  phase ?? null,            // $3
+  itemName ?? null,         // $4
+  itemCode ?? null,         // $5
+  status ?? null,           // $6
+  dateOrdered ?? null,      // $7
+  dateDelivered ?? null,    // $8
+  qtyOnHandApplied ?? null, // $9
+  qtyFromStorage ?? null,   // $10
+  qtyOrdered ?? null,       // $11
+  orderId ?? null,          // $12
+  dateStorageOrdered ?? null, // $13
+  storageOrderId ?? null,   // $14 ✅ NEW
+  id,                       // $15
+  tenantId,                 // $16
+]
     );
 
     res.json({ success: true });
