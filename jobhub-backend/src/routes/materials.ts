@@ -97,46 +97,55 @@ router.patch("/:id", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
   const { id } = req.params;
 
-  const {
-    qtyNeeded,
-    supplierId,
-    phase,
-    itemName,
-    itemCode,
-    status,
-    dateOrdered,
-    dateDelivered,
-  } = req.body;
+const {
+  qtyNeeded,
+  supplierId,
+  phase,
+  itemName,
+  itemCode,
+  status,
+  dateOrdered,
+  dateDelivered,
+  qtyOnHandApplied,
+  qtyFromStorage,
+  qtyOrdered,
+} = req.body;
 
   if (!tenantId) return res.status(403).json({ error: "Missing tenant" });
 
   try {
     await pool.query(
       `
-      UPDATE materials
-      SET
-        qty_needed     = COALESCE($1, qty_needed),
-        supplier_id    = COALESCE($2, supplier_id),
-        phase          = COALESCE($3, phase),
-        item_name      = COALESCE($4, item_name),
-        item_code      = COALESCE($5, item_code),
-        status         = COALESCE($6, status),
-        date_ordered   = COALESCE($7, date_ordered),
-        date_delivered = COALESCE($8, date_delivered)
-      WHERE id = $9
-      AND tenant_id = $10
+UPDATE materials
+SET
+  qty_needed = COALESCE($1::int, qty_needed),
+  supplier_id = COALESCE($2, supplier_id),
+  phase = COALESCE($3, phase),
+  item_name = COALESCE($4, item_name),
+  item_code = COALESCE($5, item_code),
+  status = COALESCE($6, status),
+  date_ordered = COALESCE($7, date_ordered),
+  date_delivered = COALESCE($8, date_delivered),
+  qty_on_hand_applied = COALESCE($9::int, qty_on_hand_applied),
+  qty_from_storage = COALESCE($10::int, qty_from_storage),
+  qty_ordered = COALESCE($11::int, qty_ordered)
+WHERE id = $12
+AND tenant_id = $13
       `,
       [
-        qtyNeeded ?? null,
-        supplierId ?? null,
-        phase ?? null,
-        itemName ?? null,
-        itemCode ?? null,
-        status ?? null,
-        dateOrdered ?? null,
-        dateDelivered ?? null,
-        id,
-        tenantId,
+        qtyNeeded ?? null,           // $1
+        supplierId ?? null,          // $2
+        phase ?? null,               // $3
+        itemName ?? null,            // $4
+        itemCode ?? null,            // $5
+        status ?? null,              // $6
+        dateOrdered ?? null,         // $7
+        dateDelivered ?? null,       // $8
+        qtyOnHandApplied ?? null,    // $9
+        qtyFromStorage ?? null,      // $10
+        qtyOrdered ?? null, // $11
+        id,                          // $12
+        tenantId,                    // $13
       ]
     );
 

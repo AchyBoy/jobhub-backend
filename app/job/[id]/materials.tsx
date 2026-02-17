@@ -7,6 +7,8 @@ import {
   Pressable,
   TextInput,
   Keyboard,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams } from 'expo-router';
@@ -25,6 +27,7 @@ export default function MaterialsScreen() {
   const jobId = id as string;
   const [ordering, setOrdering] = useState(false);
 const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
+const [expandedSuppliers, setExpandedSuppliers] = useState<Record<string, boolean>>({});
   const [materials, setMaterials] = useState<any[]>([]);
   const [jobName, setJobName] = useState<string>('');
   const [phases, setPhases] = useState<string[]>([]);
@@ -38,18 +41,41 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
   const [newItemCode, setNewItemCode] = useState<string | null>(null);
-  function isOrdered(material: any) {
+function isOrdered(material: any) {
+  const fulfilled =
+    (material.qty_ordered ?? 0) +
+    (material.qty_from_storage ?? 0);
+
   return (
-    (material.qty_ordered ?? 0) >= material.qty_needed &&
-    material.qty_needed > 0
+    fulfilled >= (material.qty_needed ?? 0) &&
+    (material.qty_needed ?? 0) > 0
   );
 }
-  const materialsByPhase = materials.reduce((acc: any, m: any) => {
-
+// Group by phase
+const materialsByPhase = materials.reduce((acc: any, m: any) => {
   if (!acc[m.phase]) acc[m.phase] = [];
   acc[m.phase].push(m);
   return acc;
 }, {});
+
+// Group by supplier
+const materialsBySupplier = materials.reduce((acc: any, m: any) => {
+  if (!m.supplier_id) return acc;
+
+  if (!acc[m.supplier_id]) acc[m.supplier_id] = [];
+  acc[m.supplier_id].push(m);
+
+  return acc;
+}, {});
+
+const activeSupplierIds = Object.keys(materialsBySupplier);
+
+// ✅ ADD THIS HERE
+const internalMaterials = materials.filter(
+  m =>
+    (m.qty_from_storage ?? 0) > 0 ||
+    (m.qty_on_hand_applied ?? 0) > 0
+);
 
   useEffect(() => {
     loadMaterials();
@@ -72,19 +98,19 @@ async function loadJob() {
   }
 }
 
-  async function loadMaterials() {
-    const key = `job:${jobId}:materials`;
+async function loadMaterials() {
+  const key = `job:${jobId}:materials`;
 
+  try {
+    const res = await apiFetch(`/api/materials?jobId=${jobId}`);
+    const list = res?.materials ?? [];
+    setMaterials(list);
+    await AsyncStorage.setItem(key, JSON.stringify(list));
+  } catch {
     const local = await AsyncStorage.getItem(key);
     if (local) setMaterials(JSON.parse(local));
-
-    try {
-      const res = await apiFetch(`/api/materials?jobId=${jobId}`);
-      const list = res?.materials ?? [];
-      setMaterials(list);
-      await AsyncStorage.setItem(key, JSON.stringify(list));
-    } catch {}
   }
+}
 
   async function loadPhases() {
     const local = await AsyncStorage.getItem('phases');
@@ -244,11 +270,57 @@ apiFetch('/api/materials', {
   flushSyncQueue();
 }
 
-async function updateQty(material: any, delta: number) {
-  const newQty = Math.max(
+async function applyOnHand(material: any, delta: number) {
+  const current = material.qty_on_hand_applied ?? 0;
+
+  const maxAllowed =
+    (material.qty_needed ?? 0) -
+    (material.qty_ordered ?? 0);
+
+  const newValue = Math.max(
     0,
-    materials.find(m => m.id === material.id)?.qty_needed + delta
+    Math.min(current + delta, maxAllowed)
   );
+
+  const updated = materials.map(m =>
+    m.id === material.id
+      ? { ...m, qty_on_hand_applied: newValue }
+      : m
+  );
+
+  setMaterials(updated);
+
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/materials/${material.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        qtyOnHandApplied: newValue,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'material_update',
+      coalesceKey: `material_update:${material.id}`,
+      createdAt: nowIso(),
+      payload: {
+        materialId: material.id,
+        updates: { qtyOnHandApplied: newValue },
+      },
+    });
+  }
+
+  flushSyncQueue();
+}
+
+async function updateQty(material: any, delta: number) {
+  const current = material.qty_needed ?? 0;
+  const newQty = Math.max(0, current + delta);
 
   const updated = materials.map(m =>
     m.id === material.id
@@ -257,7 +329,10 @@ async function updateQty(material: any, delta: number) {
   );
 
   setMaterials(updated);
-  AsyncStorage.setItem(`job:${jobId}:materials`, JSON.stringify(updated));
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
 
   try {
     await apiFetch(`/api/materials/${material.id}`, {
@@ -265,7 +340,7 @@ async function updateQty(material: any, delta: number) {
       body: JSON.stringify({ qtyNeeded: newQty }),
     });
   } catch {
-    enqueueSync({
+    await enqueueSync({
       id: makeId(),
       type: 'material_update',
       coalesceKey: `material_update:${material.id}`,
@@ -334,17 +409,38 @@ async function handleCreateOrder() {
     return;
   }
 
-  const itemsToOrder = materials
+let itemsToOrder: { materialId: string; qtyOrdered: number }[] = [];
+
+if (supplier?.isInternal) {
+  // Internal / On-Hand flow
+  itemsToOrder = materials
+    .filter(
+      m =>
+        m.phase === newPhase &&
+        (m.qty_on_hand_applied ?? 0) > 0
+    )
+    .map(m => ({
+      materialId: m.id,
+      qtyOrdered: m.qty_on_hand_applied ?? 0,
+    }));
+} else {
+  // Normal supplier flow
+  itemsToOrder = materials
     .filter(
       m =>
         m.phase === newPhase &&
         m.supplier_id === newSupplierId &&
-        m.qty_needed > (m.qty_ordered ?? 0)
+        m.qty_needed >
+  ((m.qty_ordered ?? 0) + (m.qty_from_storage ?? 0))
     )
     .map(m => ({
       materialId: m.id,
-      qtyOrdered: m.qty_needed - (m.qty_ordered ?? 0),
+qtyOrdered:
+  m.qty_needed -
+  (m.qty_ordered ?? 0) -
+  (m.qty_from_storage ?? 0),
     }));
+}
 
   if (!itemsToOrder.length) {
     alert('Nothing to order');
@@ -354,22 +450,19 @@ try {
     const supplierName =
       supplierMap[newSupplierId]?.name ?? 'Supplier';
 
-    const pdfResult = await generateOrderPdf({
-      jobId,
-      phase: newPhase!,
-      supplierName,
-      items: itemsToOrder.map(it => {
-        const m = materials.find(x => x.id === it.materialId);
-        return {
-          name: m?.item_name ?? '',
-          code: m?.item_code,
-          qty: it.qtyOrdered,
-        };
-      }),
-    });
-
-    const orderId = pdfResult.orderId;
-    const uri = pdfResult.uri;
+const { orderId, uri } = await generateOrderPdf({
+  jobId,
+  phase: newPhase!,
+  supplierName,
+  items: itemsToOrder.map(it => {
+    const m = materials.find(x => x.id === it.materialId);
+    return {
+      name: m?.item_name ?? '',
+      code: m?.item_code,
+      qty: it.qtyOrdered,
+    };
+  }),
+});
 
     // 1️⃣ Upload order to backend
     await apiFetch('/api/orders/create', {
@@ -406,7 +499,72 @@ const body =
       body,
     });
 
-    alert('Email draft opened');
+    // ✅ Mark supplier items as ordered
+if (!supplier?.isInternal) {
+  const updated = materials.map(m => {
+    const orderedItem = itemsToOrder.find(
+      it => it.materialId === m.id
+    );
+
+    if (orderedItem) {
+      return {
+        ...m,
+        qty_ordered:
+          (m.qty_ordered ?? 0) + orderedItem.qtyOrdered,
+      };
+    }
+
+    return m;
+  });
+
+  setMaterials(updated);
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  // persist to backend
+for (const it of itemsToOrder) {
+  const material = materials.find(m => m.id === it.materialId);
+  if (!material) continue;
+
+  const newQtyOrdered =
+    (material.qty_ordered ?? 0) + it.qtyOrdered;
+
+  await apiFetch(`/api/materials/${it.materialId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      qtyOrdered: newQtyOrdered,
+    }),
+  });
+}
+}
+
+    // Mark internal items as ordered
+if (supplier?.isInternal) {
+  const updated = materials.map(m => {
+    if (
+      m.phase === newPhase &&
+      (m.qty_on_hand_applied ?? 0) > 0
+    ) {
+      return {
+        ...m,
+        qty_from_storage:
+          (m.qty_from_storage ?? 0) + (m.qty_on_hand_applied ?? 0),
+        qty_on_hand_applied: 0,
+      };
+    }
+    return m;
+  });
+
+  setMaterials(updated);
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+}
+
+alert('Email draft opened');
 
 } catch (err) {
     console.warn('Order failed — enqueueing', err);
@@ -428,7 +586,13 @@ return (
       : 'Materials',
   }}
 />
-<SafeAreaView style={styles.container} edges={['left','right','bottom']}>
+<SafeAreaView style={{ flex: 1 }} edges={['left','right','bottom']}>
+  <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    keyboardVerticalOffset={90}
+  >
+    <View style={styles.container}>
 
   <Pressable
     onPress={() => {
@@ -443,7 +607,7 @@ return (
   </Pressable>
 
   <ScrollView
-      contentContainerStyle={{ paddingBottom: 60 }}
+      contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
       showsVerticalScrollIndicator={false}
       >
 
@@ -506,32 +670,6 @@ return (
     </View>
   )}
 
-</View>
-
-{/* CREATE CARD */}
-<View style={styles.card}>
-  <TextInput
-    placeholder="Item name"
-    value={newName}
-    onChangeText={setNewName}
-    style={styles.input}
-  />
-
-  <TextInput
-    placeholder="Item code (optional)"
-    value={newItemCode ?? ''}
-    onChangeText={setNewItemCode}
-    style={styles.input}
-  />
-
-  <Pressable
-  onPress={() => {
-    Keyboard.dismiss();
-    createMaterial();
-  }}
->
-    <Text style={styles.addBtn}>Add Material</Text>
-  </Pressable>
 </View>
 
 {/* ORDER BUTTON */}
@@ -668,10 +806,9 @@ onPress={() => {
 style={[
   styles.card,
 
-  isOrdered(material) && {
-    backgroundColor: '#dcfce7',
-    opacity: 0.7,
-  },
+(material.qty_on_hand_applied ?? 0) > 0 && {
+  backgroundColor: '#f0fdf4',
+},
 
   editMode &&
   selectedMaterialIds.includes(material.id) && {
@@ -719,56 +856,84 @@ style={[
 
 {/* Supplier Name */}
 <Text style={styles.meta}>
-Supplier: {
-  supplierMap[material.supplier_id]?.name || '—'
-}
+  Supplier: {supplierMap[material.supplier_id]?.name || '—'}
+</Text>
+
+{/* Qty */}
+<Text style={styles.meta}>
+  Qty: {material.qty_needed ?? 0}
 </Text>
 </View>
 
 {/* RIGHT SIDE */}
 <View style={{ alignItems: 'center' }}>
 
-  {/* + Button */}
-{editMode && !isOrdered(material) && (
-  <Pressable
-    onPress={() => updateQty(material, 1)}
-    style={{ marginBottom: 4 }}
-  >
-    <Text style={styles.qtyBtn}>+</Text>
-  </Pressable>
-  )}
+{editMode && !isOrdered(material) && (() => {
+  const onHand = material.qty_on_hand_applied ?? 0;
 
-  {/* Editable Qty Box */}
-<TextInput
-  editable={editMode && !isOrdered(material)}
-  value={String(material.qty_needed)}
-    keyboardType="numeric"
-    onChangeText={(val) => {
-      const num = parseInt(val || '0', 10);
-      if (!isNaN(num)) {
-        updateQty(material, num - material.qty_needed);
-      }
-    }}
-    style={{
-      borderWidth: 1,
-      borderColor: '#ddd',
-      borderRadius: 8,
-      paddingVertical: 4,
-      paddingHorizontal: 10,
-      textAlign: 'center',
-      minWidth: 60,
-      marginBottom: 4,
-    }}
-  />
+  return (
+    <>
+      {/* + Needed Button */}
+      <Pressable
+        onPress={() => updateQty(material, 1)}
+        style={{ marginBottom: 4 }}
+      >
+        <Text style={styles.qtyBtn}>+</Text>
+      </Pressable>
 
-  {/* − Button */}
-{editMode && !isOrdered(material) && (
-  <Pressable
-    onPress={() => updateQty(material, -1)}
-  >
-    <Text style={styles.qtyBtn}>−</Text>
-  </Pressable>
-  )}
+      {/* Qty Box */}
+      <TextInput
+        editable
+        value={String(material.qty_needed ?? 0)}
+        keyboardType="numeric"
+        onChangeText={(val) => {
+          const num = parseInt(val || '0', 10);
+          if (!isNaN(num)) {
+            updateQty(material, num - (material.qty_needed ?? 0));
+          }
+        }}
+        style={{
+          borderWidth: 1,
+          borderColor: '#ddd',
+          borderRadius: 8,
+          paddingVertical: 4,
+          paddingHorizontal: 10,
+          textAlign: 'center',
+          minWidth: 60,
+          marginBottom: 4,
+        }}
+      />
+
+      {/* − Needed Button */}
+      <Pressable
+        onPress={() => updateQty(material, -1)}
+      >
+        <Text style={styles.qtyBtn}>−</Text>
+      </Pressable>
+
+      {/* On-Hand Controls */}
+      <View style={{ marginTop: 8 }}>
+        <Text style={{ fontSize: 12, opacity: 0.6 }}>
+          On-Hand: {onHand}
+        </Text>
+
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <Pressable onPress={() => applyOnHand(material, 1)}>
+            <Text style={{ color: '#16a34a', fontWeight: '700' }}>
+              + On-Hand
+            </Text>
+          </Pressable>
+
+          <Pressable onPress={() => applyOnHand(material, -1)}>
+            <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+              − On-Hand
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    </>
+  );
+})()}
 
 </View>
 
@@ -778,8 +943,171 @@ Supplier: {
   </View>
 ))}
 
+{/* INTERNAL / ON-HAND BUCKET */}
+{internalMaterials.length > 0 && (
+  <View style={{ marginTop: 24 }}>
+    <Text style={{ fontWeight: '700', fontSize: 18, marginBottom: 12 }}>
+      Internal / On-Hand
+    </Text>
+
+    <Pressable
+      onPress={() =>
+        setExpandedSuppliers(prev => ({
+          ...prev,
+          __internal: !prev.__internal,
+        }))
+      }
+      style={{
+        backgroundColor: '#dcfce7',
+        padding: 12,
+        borderRadius: 12,
+      }}
+    >
+      <Text style={{ fontWeight: '700', fontSize: 16 }}>
+        Storage ({internalMaterials.length}) {expandedSuppliers.__internal ? '▲' : '▼'}
+      </Text>
+    </Pressable>
+
+    {expandedSuppliers.__internal && (
+      <View style={{ marginTop: 10 }}>
+        {internalMaterials.map((material: any) => (
+          <View key={material.id} style={styles.card}>
+            <Text style={styles.itemTitle}>
+              {material.item_name}
+            </Text>
+
+            {material.item_code && (
+              <Text style={styles.meta}>
+                Item ID: {material.item_code}
+              </Text>
+            )}
+
+            <Text style={styles.meta}>
+              Pulled From Storage: {
+  (material.qty_from_storage ?? 0) +
+  (material.qty_on_hand_applied ?? 0)
+}
+            </Text>
+
+            <Text style={styles.meta}>
+              Job: {jobName || jobId}
+            </Text>
+          </View>
+        ))}
+      </View>
+    )}
+  </View>
+)}
+
+{/* SUPPLIER BUCKETS (Receipt View) */}
+{activeSupplierIds.length > 0 && (
+
+  <View style={{ marginTop: 24 }}>
+    <Text style={{ fontWeight: '700', fontSize: 18, marginBottom: 12 }}>
+      Supplier Buckets
+    </Text>
+
+    {activeSupplierIds.map((supplierId) => {
+      const supplier = supplierMap[supplierId];
+      if (!supplier) return null;
+
+      const supplierMaterials = materialsBySupplier[supplierId];
+      const isExpanded = expandedSuppliers[supplierId];
+
+      return (
+        <View key={supplierId} style={{ marginBottom: 16 }}>
+
+          {/* Header */}
+          <Pressable
+            onPress={() =>
+              setExpandedSuppliers(prev => ({
+                ...prev,
+                [supplierId]: !prev[supplierId],
+              }))
+            }
+            style={{
+              backgroundColor: '#f1f5f9',
+              padding: 12,
+              borderRadius: 12,
+            }}
+          >
+            <Text style={{ fontWeight: '700', fontSize: 16 }}>
+              {supplier.name} ({supplierMaterials.length}) {isExpanded ? '▲' : '▼'}
+            </Text>
+          </Pressable>
+
+          {/* Bucket Contents */}
+          {isExpanded && (
+            <View style={{ marginTop: 10 }}>
+              {supplierMaterials.map((material: any) => (
+                <View key={material.id} style={styles.card}>
+                  <Text style={styles.itemTitle}>
+                    {material.item_name}
+                  </Text>
+
+                  {material.item_code && (
+                    <Text style={styles.meta}>
+                      Item ID: {material.item_code}
+                    </Text>
+                  )}
+
+<Text style={styles.meta}>
+  Needed: {
+    (material.qty_needed ?? 0)
+    - (material.qty_from_storage ?? 0)
+  }
+</Text>
+
+                  <Text style={styles.meta}>
+                    Ordered: {material.qty_ordered ?? 0}
+                  </Text>
+
+                  <Text style={styles.meta}>
+                    On-Hand: {material.qty_on_hand_applied ?? 0}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      );
+    })}
+  </View>
+)}
+
     </ScrollView>
-  </SafeAreaView>
+    {editMode && (
+  <View style={styles.bottomAddBar}>
+    <TextInput
+      placeholder="Item name"
+      value={newName}
+      onChangeText={setNewName}
+      style={styles.input}
+    />
+
+    <TextInput
+      placeholder="Item code (optional)"
+      value={newItemCode ?? ''}
+      onChangeText={setNewItemCode}
+      style={styles.input}
+    />
+
+    <Pressable
+      onPress={() => {
+        Keyboard.dismiss();
+        createMaterial();
+      }}
+      style={styles.addMaterialButton}
+    >
+      <Text style={{ color: '#fff', fontWeight: '700' }}>
+        Add Material
+      </Text>
+    </Pressable>
+  </View>
+)}
+      </View>
+  </KeyboardAvoidingView>
+</SafeAreaView>
   </>
 );
 }
@@ -832,6 +1160,24 @@ selectorChipActive: {
 selectorTextActive: {
   color: '#fff',
   fontWeight: '600',
+},
+bottomAddBar: {
+  position: 'absolute',
+  bottom: 0,
+  left: 0,
+  right: 0,
+  padding: 16,
+  backgroundColor: '#ffffff',
+  borderTopWidth: 1,
+  borderColor: '#e5e7eb',
+},
+
+addMaterialButton: {
+  marginTop: 8,
+  backgroundColor: '#16a34a',
+  paddingVertical: 12,
+  borderRadius: 12,
+  alignItems: 'center',
 },
   input: {
     borderWidth: 1,
