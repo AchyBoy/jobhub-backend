@@ -41,24 +41,29 @@ export async function requireAuthWithTenant(
   // 2️⃣ Resolve tenant from tenant_users table
   const result = await pool.query(
     `
-    SELECT tenant_id
-    FROM tenant_users
-    WHERE user_id = $1
-    LIMIT 1
+SELECT tenant_id, role, is_active
+FROM tenant_users
+WHERE user_id = $1
+LIMIT 1
     `,
     [userId]
   );
 
-  if (result.rowCount === 0) {
-    return res.status(403).json({ error: "User not assigned to a tenant" });
-  }
+if (result.rowCount === 0) {
+  return res.status(403).json({ error: "User not assigned to a tenant" });
+}
 
-  const tenantId = result.rows[0].tenant_id;
+const { tenant_id, role, is_active } = result.rows[0];
 
-  (req as any).user = {
-    id: userId,
-    tenantId,
-  };
+if (!is_active) {
+  return res.status(403).json({ error: "User is inactive" });
+}
+
+(req as any).user = {
+  id: userId,
+  tenantId: tenant_id,
+  role,
+};
 
   next();
 }

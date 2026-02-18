@@ -17,6 +17,7 @@ import tenantRoutes from "./routes/tenant";
 import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
 import ordersRouter from "./routes/orders";
+import tenantUsersRoutes from "./routes/tenantUsers";
 import contractorsRoutes from "./routes/contractors";
 import vendorsRoutes from "./routes/vendors";
 import jobVendorsRoutes from "./routes/jobVendors";
@@ -77,6 +78,7 @@ app.use("/api/jobs", jobInspectionsRoutes);
 app.use("/api/scheduled-tasks", scheduledTasksRoutes);
 app.use("/api/materials", materialsRoutes);
 app.use("/api/orders", ordersRouter);
+app.use("/api/tenant/users", tenantUsersRoutes);
 app.use("/api/suppliers", suppliersRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
