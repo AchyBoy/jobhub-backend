@@ -1,5 +1,5 @@
 //JobHub/app/job/[id].tsx
-import { Text, StyleSheet, Pressable, View, ScrollView } from 'react-native';
+import { Text, StyleSheet, Pressable, View, ScrollView, Alert } from 'react-native';
 
 
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -351,6 +351,40 @@ async function assignCrew(crewId: string, phase: string) {
         Assign crews per phase
       </Text>
     </Pressable>
+
+        {/* Create Template */}
+<Pressable
+  style={[styles.card, { backgroundColor: '#ecfdf5', borderColor: '#6ee7b7' }]}
+  onPress={() => {
+    Alert.alert(
+      'Create Template',
+      'This will create a reusable template from this job. Continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Create',
+          style: 'default',
+          onPress: async () => {
+            try {
+              await apiFetch(`/api/templates/from-job/${id}`, {
+                method: 'POST',
+              });
+
+              Alert.alert('Success', 'Template created successfully.');
+            } catch (err) {
+              Alert.alert('Error', 'Failed to create template.');
+            }
+          },
+        },
+      ]
+    );
+  }}
+>
+  <Text style={styles.cardTitle}>Create Template</Text>
+  <Text style={styles.cardSub}>
+    Save this job structure as a reusable template
+  </Text>
+</Pressable>
 
   </View>
 

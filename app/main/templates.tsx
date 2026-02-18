@@ -1,10 +1,16 @@
-//JobHub/app/main/templates.tsx
+// JobHub/app/main/templates.tsx
 
-import { View, Text, StyleSheet, FlatList, Pressable, Alert } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  Alert,
+} from 'react-native';
 import { useEffect, useState } from 'react';
 import { router } from 'expo-router';
-
-const API_BASE = 'https://api.jobhubgo.com';
+import { apiFetch } from '../../src/lib/apiClient';
 
 type Template = {
   id: string;
@@ -22,10 +28,10 @@ export default function TemplatesScreen() {
 
   async function loadTemplates() {
     try {
-      const res = await fetch(`${API_BASE}/api/templates`);
-      const data = await res.json();
-      setTemplates(data.templates ?? []);
-    } catch {
+      const res = await apiFetch('/api/templates');
+      setTemplates(res?.templates ?? []);
+    } catch (err) {
+      console.warn('Failed to load templates', err);
       Alert.alert('Error', 'Failed to load templates');
     } finally {
       setLoading(false);
@@ -33,8 +39,8 @@ export default function TemplatesScreen() {
   }
 
   return (
-<View style={styles.container}>
-  <Text style={styles.title}>Templates</Text>
+    <View style={styles.container}>
+      <Text style={styles.title}>Templates</Text>
 
       {loading ? (
         <Text style={styles.empty}>Loading templates…</Text>

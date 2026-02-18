@@ -27,28 +27,22 @@ export default function AddJob() {
 
     const jobId = Date.now().toString();
 
-    // 🧠 TEMPLATE PATH
-    if (templateId) {
-      try {
-        const res = await fetch(
-          'https://api.jobhubgo.com/api/templates/create/job',
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              templateId,
-              jobId,
-              jobName: name,
-            }),
-          }
-        );
-
-        if (!res.ok) throw new Error('Template creation failed');
-      } catch (err) {
-        console.warn(err);
-        return;
-      }
-    }
+// 🧠 TEMPLATE PATH
+if (templateId) {
+  try {
+    await apiFetch('/api/templates/create/job', {
+      method: 'POST',
+      body: JSON.stringify({
+        templateId,
+        jobId,
+        jobName: name,
+      }),
+    });
+  } catch (err) {
+    console.warn('Template creation failed', err);
+    return;
+  }
+}
 
 // 🔐 Persist job to backend (source of truth)
 try {
@@ -166,9 +160,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
   },
-toggleText: {
-  fontWeight: '600',
-},
 
 toggleTextActive: {
   color: '#fff',
