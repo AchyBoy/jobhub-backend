@@ -31,6 +31,18 @@ router.get("/", async (req: any, res) => {
  * owner + admin only
  * Max 3 active total (including owner)
  */
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+/**
+ * ADD USER BY EMAIL
+ * owner + admin only
+ * Max 3 active total (including owner)
+ */
 router.post("/add", async (req: any, res) => {
   const { tenantId, role: actingRole } = req.user;
 
@@ -38,13 +50,17 @@ router.post("/add", async (req: any, res) => {
     return res.status(403).json({ error: "Insufficient permission" });
   }
 
-  const { newUserId, newRole } = req.body;
+  const { email, newRole } = req.body;
 
-  if (!newUserId || !["admin", "member"].includes(newRole)) {
-    return res.status(400).json({ error: "Invalid payload" });
+  if (!email || typeof email !== "string") {
+    return res.status(400).json({ error: "Missing email" });
   }
 
-  // 1️⃣ Enforce max 3 active total users
+  if (!["admin", "member"].includes(newRole)) {
+    return res.status(400).json({ error: "Invalid role" });
+  }
+
+  // 🔒 Enforce max 3 active users total
   const countResult = await pool.query(
     `
     SELECT COUNT(*)
@@ -63,30 +79,43 @@ router.post("/add", async (req: any, res) => {
     });
   }
 
-  // 2️⃣ Insert into users table if missing
+// 🔎 Resolve Supabase user by email (admin API does NOT have getUserByEmail)
+const { data, error } = await supabase.auth.admin.listUsers();
+
+if (error || !data?.users) {
+  return res.status(500).json({ error: "Failed to query Supabase users" });
+}
+
+const foundUser = data.users.find(
+  (u: any) => u.email?.toLowerCase() === email.toLowerCase()
+);
+
+if (!foundUser) {
+  return res.status(400).json({ error: "User not found in Supabase" });
+}
+
+const newUserId = foundUser.id;
+
+  // Ensure user exists in users table
   await pool.query(
     `
     INSERT INTO users (id, tenant_id)
     VALUES ($1, $2)
-    ON CONFLICT (id) DO NOTHING
+    ON CONFLICT (id) DO UPDATE SET tenant_id = EXCLUDED.tenant_id
     `,
     [newUserId, tenantId]
   );
 
-  // 3️⃣ Insert tenant_users row
-  try {
-    await pool.query(
-      `
-      INSERT INTO tenant_users (tenant_id, user_id, role)
-      VALUES ($1, $2, $3)
-      `,
-      [tenantId, newUserId, newRole]
-    );
-  } catch (e) {
-    return res.status(400).json({
-      error: "User already assigned to this tenant"
-    });
-  }
+  // Insert or reactivate tenant_users row
+  await pool.query(
+    `
+    INSERT INTO tenant_users (tenant_id, user_id, role, is_active)
+    VALUES ($1, $2, $3, true)
+    ON CONFLICT (tenant_id, user_id)
+    DO UPDATE SET role = EXCLUDED.role, is_active = true
+    `,
+    [tenantId, newUserId, newRole]
+  );
 
   res.json({ success: true });
 });
