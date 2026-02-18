@@ -80,6 +80,15 @@ export default function SettingsScreen() {
   <Text style={styles.itemText}>Storage (On-Hand)</Text>
 </Pressable>
 
+<Text style={styles.sectionHeader}>Administration</Text>
+
+<Pressable
+  style={[styles.item, { marginTop: 12 }]}
+  onPress={() => router.push('/main/admin')}
+>
+  <Text style={styles.itemText}>Manage Users</Text>
+</Pressable>
+
 <Pressable
   style={[styles.item, { marginTop: 16, backgroundColor: '#fee2e2' }]}
   onPress={async () => {
