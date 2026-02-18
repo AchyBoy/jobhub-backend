@@ -15,7 +15,8 @@ import { apiFetch } from '../../../src/lib/apiClient';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 export default function JobDefaultsScreen() {
-  const { id } = useLocalSearchParams();
+  const params = useLocalSearchParams<{ id?: string }>();
+const jobId = typeof params.id === 'string' ? params.id : '';
 
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [contractors, setContractors] = useState<any[]>([]);
@@ -39,10 +40,10 @@ const [inspectionCompanies, setInspectionCompanies] =
 const [selectedInspectionCompany, setSelectedInspectionCompany] =
   useState<string | null>(null);
 
-  useEffect(() => {
-    if (!id) return;
-    load();
-  }, [id]);
+useEffect(() => {
+  if (!jobId) return;
+  load();
+}, [jobId]);
 
 async function load() {
   try {
@@ -110,7 +111,7 @@ async function load() {
 }
 
 async function persistLocalDefaults(update: any) {
-  const storageKey = `job:${id}:defaults`;
+  const storageKey = `job:${jobId}:defaults`;
 
   const existingRaw = await AsyncStorage.getItem(storageKey);
   const existing = existingRaw ? JSON.parse(existingRaw) : {};
@@ -141,7 +142,7 @@ async function toggleSupervisor(supervisorId: string) {
   });
 
   try {
-    await apiFetch(`/api/jobs/${id}/supervisors`, {
+    await apiFetch(`/api/jobs/${jobId}/supervisors`, {
       method: 'POST',
       body: JSON.stringify({
         supervisorIds: updated,
@@ -151,16 +152,16 @@ async function toggleSupervisor(supervisorId: string) {
     await enqueueSync({
       id: makeId(),
       type: 'job_supervisors_set',
-      coalesceKey: `job_supervisors_set:${id}`,
+      coalesceKey: `job_supervisors_set:${jobId}`,
       createdAt: nowIso(),
       payload: {
-        jobId: id,
+        jobId,
         supervisorIds: updated,
       },
     });
   }
 
-  await flushSyncQueue();
+  flushSyncQueue();
 }
 
 async function selectContractor(contractorId: string) {
@@ -171,7 +172,7 @@ async function selectContractor(contractorId: string) {
   });
 
   try {
-    await apiFetch(`/api/jobs/${id}/contractor`, {
+    await apiFetch(`/api/jobs/${jobId}/contractor`, {
       method: 'POST',
       body: JSON.stringify({
         contractorId,
@@ -181,16 +182,16 @@ async function selectContractor(contractorId: string) {
     await enqueueSync({
       id: makeId(),
       type: 'job_contractor_set',
-      coalesceKey: `job_contractor_set:${id}`,
+      coalesceKey: `job_contractor_set:${jobId}`,
       createdAt: nowIso(),
       payload: {
-        jobId: id,
+        jobId,
         contractorId,
       },
     });
   }
 
-  await flushSyncQueue();
+  flushSyncQueue();
 }
 
 async function selectVendor(vendorId: string) {
@@ -201,7 +202,7 @@ async function selectVendor(vendorId: string) {
   });
 
   try {
-    await apiFetch(`/api/jobs/${id}/vendor`, {
+    await apiFetch(`/api/jobs/${jobId}/vendor`, {
       method: 'POST',
       body: JSON.stringify({
         vendorId,
@@ -211,16 +212,16 @@ async function selectVendor(vendorId: string) {
     await enqueueSync({
       id: makeId(),
       type: 'job_vendor_set',
-      coalesceKey: `job_vendor_set:${id}`,
+      coalesceKey: `job_vendor_set:${jobId}`,
       createdAt: nowIso(),
       payload: {
-        jobId: id,
+        jobId,
         vendorId,
       },
     });
   }
 
-  await flushSyncQueue();
+  flushSyncQueue();
 }
 
 async function selectPermitCompany(permitCompanyId: string) {
@@ -231,7 +232,7 @@ async function selectPermitCompany(permitCompanyId: string) {
   });
 
   try {
-    await apiFetch(`/api/jobs/${id}/permit-company`, {
+    await apiFetch(`/api/jobs/${jobId}/permit-company`, {
       method: 'POST',
       body: JSON.stringify({
         permitCompanyId,
@@ -241,16 +242,16 @@ async function selectPermitCompany(permitCompanyId: string) {
     await enqueueSync({
       id: makeId(),
       type: 'job_permit_company_set',
-      coalesceKey: `job_permit_company_set:${id}`,
+      coalesceKey: `job_permit_company_set:${jobId}`,
       createdAt: nowIso(),
       payload: {
-        jobId: id,
+        jobId,
         permitCompanyId,
       },
     });
   }
 
-  await flushSyncQueue();
+  flushSyncQueue();
 }
 
 async function selectInspectionCompany(inspectionCompanyId: string) {
@@ -261,7 +262,7 @@ async function selectInspectionCompany(inspectionCompanyId: string) {
   });
 
   try {
-    await apiFetch(`/api/jobs/${id}/inspection`, {
+    await apiFetch(`/api/jobs/${jobId}/inspection`, {
       method: 'POST',
       body: JSON.stringify({
         inspectionId: inspectionCompanyId,
@@ -271,16 +272,16 @@ async function selectInspectionCompany(inspectionCompanyId: string) {
     await enqueueSync({
       id: makeId(),
       type: 'job_inspection_set',
-      coalesceKey: `job_inspection_set:${id}`,
+      coalesceKey: `job_inspection_set:${jobId}`,
       createdAt: nowIso(),
       payload: {
-        jobId: id,
+        jobId,
         inspectionId: inspectionCompanyId,
       },
     });
   }
 
-  await flushSyncQueue();
+  flushSyncQueue();
 }
 
   return (

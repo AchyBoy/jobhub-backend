@@ -1,6 +1,7 @@
 //JobHub/app/job/[id].tsx
 import { Text, StyleSheet, Pressable, View, ScrollView, Alert } from 'react-native';
-
+import { useFocusEffect } from '@react-navigation/native';
+import { useCallback } from 'react';
 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -29,16 +30,16 @@ const jobName =
     ? name
     : 'Job';
 
-useEffect(() => {
-  if (!id) return;
-  loadCrews();
-  loadPhases();
-  loadAssignments();
-  loadDefaults();
-setTimeout(() => {
-  flushSyncQueue();
-}, 50);
-}, [id]);
+useFocusEffect(
+  useCallback(() => {
+    if (!id) return;
+
+    loadCrews();
+    loadPhases();
+    loadAssignments();
+    loadDefaults();
+  }, [id])
+);
 
 async function loadCrews() {
   const local = await AsyncStorage.getItem('crews_v1');
@@ -200,8 +201,8 @@ async function assignCrew(crewId: string, phase: string) {
 {jobSupervisors.length === 0 ? (
   <Text style={styles.detailValue}>Not Assigned</Text>
 ) : (
-  jobSupervisors.map(s => (
-    <Text key={s.id} style={styles.detailValue}>
+  jobSupervisors.map((s: any, index: number) => (
+    <Text key={`${s?.id ?? s}-${index}`} style={styles.detailValue}>
       {s.name}
     </Text>
   ))
