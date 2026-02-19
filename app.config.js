@@ -2,6 +2,7 @@ import 'dotenv/config';
 
 export default {
   expo: {
+    owner: 'achyboy',
     name: 'JobHub',
     slug: 'JobHub',
     version: '1.0.0',
@@ -12,7 +13,7 @@ export default {
 
     ios: {
       supportsTablet: true,
-      bundleIdentifier: 'com.anonymous.JobHub',
+      bundleIdentifier: 'com.jobhubgo.app',
     },
 
     android: {
@@ -24,7 +25,7 @@ export default {
       },
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
-      package: 'com.anonymous.JobHub',
+      package: 'com.jobhubgo.app',
     },
 
     web: {
@@ -54,6 +55,9 @@ export default {
     // 🔑 THIS IS WHAT UNBLOCKS POSTGRES
     extra: {
       EXPO_PUBLIC_API_BASE: process.env.EXPO_PUBLIC_API_BASE,
+      eas: {
+        projectId: "b3f91b32-f58f-4740-b078-68338aed0767",
+      },
     },
   },
 };
