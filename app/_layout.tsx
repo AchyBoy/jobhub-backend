@@ -22,10 +22,16 @@ const { data } = await supabase.auth.getSession();
 if (!mounted) return;
 setSession(data.session);
 const { data: sub } = supabase.auth.onAuthStateChange(
-        (_event, session) => {
-setSession(session);
-        }
-      );
+  (event, session) => {
+
+    if (event === 'PASSWORD_RECOVERY') {
+      router.replace('/(auth)/update-password');
+      return;
+    }
+
+    setSession(session);
+  }
+);
 setReady(true);
 return () => sub.subscription.unsubscribe();
     }
@@ -34,23 +40,37 @@ return () => {
 mounted = false;
     };
   }, []);
-// 1.5️⃣ Ensure tenant exists before allowing main access
+  
+// 1.5️⃣ Ensure tenant exists and password state is valid
 useEffect(() => {
-if (!ready || !session) return;
-const inAuthGroup = segments[0] === '(auth)';
-if (inAuthGroup) return;
-async function checkTenant() {
-try {
-const res = await apiFetch('/api/tenant/me');
-if (res.needsCompany) {
-router.replace('/create-company');
+  if (!ready || !session) return;
+
+  const inAuthGroup = segments[0] === '(auth)';
+  if (inAuthGroup) return;
+
+  async function checkTenant() {
+    try {
+      const res = await apiFetch('/api/tenant/me');
+
+      if (res.needsCompany) {
+        router.replace('/create-company');
+        return;
       }
+
+      if (res.mustChangePassword) {
+        router.replace('/(auth)/update-password');
+        return;
+      }
+
     } catch (err) {
-console.warn('Tenant check failed', err);
+      console.warn('Tenant check failed', err);
     }
   }
-checkTenant();
-}, [ready, session]);
+
+  checkTenant();
+
+}, [ready, session, segments]);
+
 // 2️⃣ Handle routing reactively
 useEffect(() => {
 if (!ready) return;
@@ -59,10 +79,20 @@ if (!session && !inAuthGroup) {
 router.replace('/(auth)/login');
 return;
     }
-if (session && inAuthGroup) {
-router.replace('/main');
-return;
-    }
+
+// Allow update-password screen while logged in
+const segment0 = segments[0];
+const segment1 = segments.at(1);
+
+const isUpdatePassword =
+  segment0 === '(auth)' &&
+  segment1 === 'update-password';
+
+if (session && inAuthGroup && !isUpdatePassword) {
+  router.replace('/main');
+  return;
+}
+
   }, [ready, session, segments]);
 // 3️⃣ Heartbeat to detect session takeover
 useEffect(() => {

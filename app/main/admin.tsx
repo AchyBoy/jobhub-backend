@@ -14,13 +14,28 @@ import { apiFetch } from '../../src/lib/apiClient';
 
 export default function AdminScreen() {
   const [users, setUsers] = useState<any[]>([]);
-  const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'admin' | 'member'>('member');
-  const [loading, setLoading] = useState(false);
+const [email, setEmail] = useState('');
+const [password, setPassword] = useState('');
+const [role, setRole] = useState<'admin' | 'member'>('member');
+const [loading, setLoading] = useState(false);
+const [currentRole, setCurrentRole] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
+useEffect(() => {
+  async function init() {
+    try {
+      const me = await apiFetch('/api/tenant/me');
+      setCurrentRole(me.role);
+
+      if (me.role === 'owner' || me.role === 'admin') {
+        await loadUsers();
+      }
+    } catch {
+      setCurrentRole(null);
+    }
+  }
+
+  init();
+}, []);
 
   async function loadUsers() {
     try {
@@ -31,23 +46,25 @@ export default function AdminScreen() {
     }
   }
 
-  async function addUser() {
-    if (!email.trim()) return;
+async function addUser() {
+  if (!email.trim() || !password.trim()) return;
 
     setLoading(true);
 
     try {
-      await apiFetch('/api/tenant/users/add', {
-        method: 'POST',
-        body: JSON.stringify({
-          email: email.trim(),
-          newRole: role,
-        }),
-      });
+await apiFetch('/api/tenant/users/add', {
+  method: 'POST',
+  body: JSON.stringify({
+    email: email.trim(),
+    newRole: role,
+    password: password.trim(),
+  }),
+});
 
-      setEmail('');
-      await loadUsers();
-      Alert.alert('Success', 'User added successfully.');
+setEmail('');
+setPassword('');
+await loadUsers();
+Alert.alert('Success', 'User added successfully.');
     } catch (err: any) {
       Alert.alert(
         'Error',
@@ -86,6 +103,47 @@ export default function AdminScreen() {
     );
   }
 
+  if (currentRole && currentRole !== 'owner' && currentRole !== 'admin') {
+  return (
+    <SafeAreaView style={styles.container}>
+      <Text style={{ fontSize: 18, fontWeight: '600' }}>
+        Access Restricted
+      </Text>
+    </SafeAreaView>
+  );
+}
+
+async function resetPassword(userId: string) {
+  Alert.prompt(
+    "Reset Password",
+    "Enter new temporary password",
+    async (newPassword) => {
+      if (!newPassword || newPassword.trim().length < 6) {
+        Alert.alert("Error", "Password must be at least 6 characters.");
+        return;
+      }
+
+      try {
+        await apiFetch('/api/tenant/users/reset-password', {
+          method: 'POST',
+          body: JSON.stringify({
+            targetUserId: userId,
+            newPassword: newPassword.trim(),
+          }),
+        });
+
+        Alert.alert("Success", "Password reset successfully.");
+      } catch (err: any) {
+        Alert.alert(
+          "Error",
+          err?.message || "Password reset failed."
+        );
+      }
+    },
+    "secure-text"
+  );
+}
+
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView>
@@ -94,23 +152,67 @@ export default function AdminScreen() {
         {users.map((u: any) => (
           <View key={u.user_id} style={styles.userRow}>
             <View>
-              <Text style={styles.userId}>
-                {u.user_id}
-              </Text>
+<Text style={styles.userId}>
+  {u.email || u.user_id}
+</Text>
               <Text style={styles.meta}>
                 Role: {u.role} | {u.is_active ? 'Active' : 'Inactive'}
               </Text>
             </View>
 
-            {u.role !== 'owner' && u.is_active && (
-              <Pressable
-                onPress={() => deactivateUser(u.user_id)}
-              >
-                <Text style={styles.deactivate}>
-                  Deactivate
-                </Text>
-              </Pressable>
-            )}
+{u.role !== 'owner' && u.is_active && (
+  <View style={{ alignItems: 'flex-end', gap: 6 }}>
+
+    {/* Role Toggle — Owner Only */}
+    {currentRole === 'owner' && (
+      <Pressable
+        onPress={async () => {
+          try {
+            await apiFetch('/api/tenant/users/role', {
+              method: 'POST',
+              body: JSON.stringify({
+                targetUserId: u.user_id,
+                newRole: u.role === 'admin' ? 'member' : 'admin',
+              }),
+            });
+
+            await loadUsers();
+          } catch (err: any) {
+            Alert.alert('Error', err?.message || 'Role update failed.');
+          }
+        }}
+      >
+        <Text style={{ color: '#2563eb', fontWeight: '600' }}>
+          {u.role === 'admin'
+            ? 'Demote to Member'
+            : 'Promote to Admin'}
+        </Text>
+      </Pressable>
+    )}
+
+    {/* Reset Password — Owner Only */}
+{currentRole === 'owner' && (
+  <Pressable
+    onPress={() => resetPassword(u.user_id)}
+  >
+    <Text style={{ color: '#f59e0b', fontWeight: '600' }}>
+      Reset Password
+    </Text>
+  </Pressable>
+)}
+
+    {/* Deactivate — Owner Only */}
+    {currentRole === 'owner' && (
+      <Pressable
+        onPress={() => deactivateUser(u.user_id)}
+      >
+        <Text style={styles.deactivate}>
+          Deactivate
+        </Text>
+      </Pressable>
+    )}
+  </View>
+)}
           </View>
         ))}
 
@@ -120,13 +222,21 @@ export default function AdminScreen() {
           Add User (by email)
         </Text>
 
-        <TextInput
-          placeholder="User email"
-          value={email}
-          onChangeText={setEmail}
-          style={styles.input}
-          autoCapitalize="none"
-        />
+<TextInput
+  placeholder="User email"
+  value={email}
+  onChangeText={setEmail}
+  style={styles.input}
+  autoCapitalize="none"
+/>
+
+<TextInput
+  placeholder="Temporary password"
+  value={password}
+  onChangeText={setPassword}
+  style={styles.input}
+  secureTextEntry
+/>
 
         <View style={styles.roleRow}>
           <Pressable

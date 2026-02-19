@@ -12,9 +12,17 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.DATABASE_URL?.includes("railway")
-    ? { rejectUnauthorized: false }
-    : undefined,
+  ssl: {
+    rejectUnauthorized: false, // Railway requires SSL
+  },
+  max: 10,                     // limit concurrent clients
+  idleTimeoutMillis: 30000,    // close idle clients after 30s
+  connectionTimeoutMillis: 5000,
+});
+
+// 🔥 Prevent silent crashes
+pool.on("error", (err) => {
+  console.error("🔥 Unexpected Postgres pool error:", err);
 });
 
 export async function testPostgresConnection() {

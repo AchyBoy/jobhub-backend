@@ -51,10 +51,6 @@ if (sessionError || !freshSessionData.session?.access_token) {
 
 console.log('Fresh token retrieved after login:', freshSessionData.session.access_token.substring(0, 10) + '...');
 
-// 🔄 Rotate device session id on login
-const newDeviceSession = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-await AsyncStorage.setItem('deviceSessionId', newDeviceSession);
-
 try {
   // 🔐 Verify session ownership
   await apiFetch('/api/job');
@@ -170,6 +166,15 @@ return;
       />
 
       {error && <Text style={styles.error}>{error}</Text>}
+
+      <Pressable
+  onPress={() => router.push('/(auth)/reset-password')}
+  style={{ marginBottom: 12 }}
+>
+  <Text style={{ textAlign: 'center', color: '#2563eb', fontWeight: '600' }}>
+    Forgot password?
+  </Text>
+</Pressable>
 
       <Pressable style={styles.button} onPress={handleLogin} disabled={loading}>
         <Text style={styles.buttonText}>

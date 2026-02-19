@@ -3,9 +3,26 @@
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
+import { useEffect, useState } from 'react';
+import { apiFetch } from '../../src/lib/apiClient';
 
 export default function SettingsScreen() {
   const router = useRouter();
+
+const [role, setRole] = useState<string | null>(null);
+
+useEffect(() => {
+  async function loadRole() {
+    try {
+      const res = await apiFetch('/api/tenant/me');
+      setRole(res.role);
+    } catch {
+      setRole(null);
+    }
+  }
+
+  loadRole();
+}, []);
 
   return (
 <ScrollView
@@ -80,14 +97,18 @@ export default function SettingsScreen() {
   <Text style={styles.itemText}>Storage (On-Hand)</Text>
 </Pressable>
 
-<Text style={styles.sectionHeader}>Administration</Text>
+{(role === 'owner' || role === 'admin') && (
+  <>
+    <Text style={styles.sectionHeader}>Administration</Text>
 
-<Pressable
-  style={[styles.item, { marginTop: 12 }]}
-  onPress={() => router.push('/main/admin')}
->
-  <Text style={styles.itemText}>Manage Users</Text>
-</Pressable>
+    <Pressable
+      style={[styles.item, { marginTop: 12 }]}
+      onPress={() => router.push('/main/admin')}
+    >
+      <Text style={styles.itemText}>Manage Users</Text>
+    </Pressable>
+  </>
+)}
 
 <Pressable
   style={[styles.item, { marginTop: 16, backgroundColor: '#fee2e2' }]}

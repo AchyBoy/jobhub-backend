@@ -44,10 +44,10 @@ const userId = userData.user.id;
 // 🔎 Load user record (for session enforcement)
 const userResult = await pool.query(
   `
-  SELECT tenant_id, active_session_id
-  FROM users
-  WHERE id = $1
-  LIMIT 1
+SELECT tenant_id, active_session_id, must_change_password
+FROM users
+WHERE id = $1
+LIMIT 1
   `,
   [userId]
 );
@@ -56,7 +56,7 @@ if (userResult.rowCount === 0) {
   return res.status(403).json({ error: "User record not found" });
 }
 
-const { tenant_id, active_session_id } = userResult.rows[0];
+const { tenant_id, active_session_id, must_change_password } = userResult.rows[0];
 
 // 🔐 Read device session header
 const deviceSession = req.headers["x-device-session"] as string | undefined;
@@ -120,6 +120,7 @@ if (!is_active) {
   id: userId,
   tenantId: tenant_id,
   role,
+  mustChangePassword: must_change_password === true,
 };
 
   next();

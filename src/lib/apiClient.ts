@@ -42,6 +42,9 @@ export async function apiFetch(
 
   headers['x-device-session'] = deviceSession;
 
+// 🔎 DEBUG: confirm which device session we are sending
+console.log('🆔 x-device-session (outgoing) =', deviceSession, 'path=', path);
+
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,

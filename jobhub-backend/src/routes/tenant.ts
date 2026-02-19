@@ -70,13 +70,23 @@ router.get("/me", requireAuthWithTenant, async (req: any, res) => {
     });
   }
 
-  return res.json({
-    userId,
-    needsCompany: false,
-    tenantId: r.rows[0].tenant_id,
-    role: r.rows[0].role,
-    tenantName: r.rows[0].tenant_name,
-  });
+const userRecord = await pool.query(
+  `
+  SELECT must_change_password
+  FROM users
+  WHERE id = $1
+  `,
+  [userId]
+);
+
+return res.json({
+  userId,
+  needsCompany: false,
+  tenantId: r.rows[0].tenant_id,
+  role: r.rows[0].role,
+  tenantName: r.rows[0].tenant_name,
+  mustChangePassword: userRecord.rows[0]?.must_change_password === true,
+});
 });
 
 /**
