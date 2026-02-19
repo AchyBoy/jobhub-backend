@@ -2,11 +2,18 @@
 import { supabase } from './supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE = process.env.EXPO_PUBLIC_API_BASE;
+import Constants from 'expo-constants';
+
+const API_BASE =
+  Constants.expoConfig?.extra?.EXPO_PUBLIC_API_BASE;
+
 console.log('🧪 EXPO_PUBLIC_API_BASE (runtime) =', API_BASE);
 
 if (!API_BASE) {
-  console.warn('🔴 API_BASE missing — check EXPO_PUBLIC_API_BASE');
+  console.error(
+    '🔴 FATAL: API_BASE missing in production build — check app.config.js extra + eas.json env'
+  );
+  throw new Error('Missing API_BASE');
 }
 
 export async function apiFetch(
