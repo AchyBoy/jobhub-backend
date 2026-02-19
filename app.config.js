@@ -12,9 +12,12 @@ export default {
     userInterfaceStyle: 'automatic',
 
     ios: {
-      supportsTablet: true,
-      bundleIdentifier: 'com.jobhubgo.app',
-    },
+  supportsTablet: true,
+  bundleIdentifier: 'com.jobhubgo.app',
+  infoPlist: {
+    ITSAppUsesNonExemptEncryption: false,
+  },
+},
 
     android: {
       adaptiveIcon: {
