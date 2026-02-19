@@ -3,6 +3,8 @@ import { Request, Response, NextFunction } from "express";
 import { createClient } from "@supabase/supabase-js";
 import { pool } from "../db/postgres";
 
+console.log("AUTH MIDDLEWARE HIT");
+
 const supabase = createClient(
   process.env.SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -37,7 +39,7 @@ export async function requireAuthWithTenant(
   }
 
 const userId = userData.user.id;
-const currentSessionId = token;
+
 
 // 🔎 Load user record (for session enforcement)
 const userResult = await pool.query(
@@ -56,23 +58,40 @@ if (userResult.rowCount === 0) {
 
 const { tenant_id, active_session_id } = userResult.rows[0];
 
-// 🔒 Enforce single active session
-if (active_session_id && active_session_id !== currentSessionId) {
-  return res.status(403).json({
-    error: "Another session is already active for this user"
+// 🔐 Read device session header
+const deviceSession = req.headers["x-device-session"] as string | undefined;
+
+if (!deviceSession) {
+  return res.status(401).json({
+    error: "Missing device session",
+    code: "SESSION_MISSING"
   });
 }
 
-// 🧠 If no session yet, register this one
+// 🔒 Soft single-device enforcement
+console.log("SESSION CHECK", {
+  userId,
+  active_session_id,
+  deviceSession
+});
+
 if (!active_session_id) {
+  // first login
   await pool.query(
     `
     UPDATE users
     SET active_session_id = $1
     WHERE id = $2
     `,
-    [currentSessionId, userId]
+    [deviceSession, userId]
   );
+} 
+
+else if (active_session_id !== deviceSession) {
+  return res.status(401).json({
+    error: "Another device is already logged in",
+    code: "SESSION_CONFLICT"
+  });
 }
 
 // Now resolve role from tenant_users

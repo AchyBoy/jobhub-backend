@@ -4,6 +4,8 @@ import { Stack, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
 import { apiFetch } from '../src/lib/apiClient';
 import { Text } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -12,68 +14,107 @@ export default function RootLayout() {
   const router = useRouter();
   const segments = useSegments();
 
-  // 1️⃣ Load initial session + subscribe
-  useEffect(() => {
-    let mounted = true;
-
-    async function init() {
-      const { data } = await supabase.auth.getSession();
-      if (!mounted) return;
-
-      setSession(data.session);
-
-      const { data: sub } = supabase.auth.onAuthStateChange(
+// 1️⃣ Load initial session + subscribe
+useEffect(() => {
+let mounted = true;
+async function init() {
+const { data } = await supabase.auth.getSession();
+if (!mounted) return;
+setSession(data.session);
+const { data: sub } = supabase.auth.onAuthStateChange(
         (_event, session) => {
-          setSession(session);
+setSession(session);
         }
       );
-
-      setReady(true);
-
-      return () => sub.subscription.unsubscribe();
+setReady(true);
+return () => sub.subscription.unsubscribe();
     }
-
-    init();
-    return () => {
-      mounted = false;
+init();
+return () => {
+mounted = false;
     };
   }, []);
-
-  // 1.5️⃣ Ensure tenant exists before allowing main access
+// 1.5️⃣ Ensure tenant exists before allowing main access
+useEffect(() => {
+if (!ready || !session) return;
+const inAuthGroup = segments[0] === '(auth)';
+if (inAuthGroup) return;
+async function checkTenant() {
+try {
+const res = await apiFetch('/api/tenant/me');
+if (res.needsCompany) {
+router.replace('/create-company');
+      }
+    } catch (err) {
+console.warn('Tenant check failed', err);
+    }
+  }
+checkTenant();
+}, [ready, session]);
+// 2️⃣ Handle routing reactively
+useEffect(() => {
+if (!ready) return;
+const inAuthGroup = segments[0] === '(auth)';
+if (!session && !inAuthGroup) {
+router.replace('/(auth)/login');
+return;
+    }
+if (session && inAuthGroup) {
+router.replace('/main');
+return;
+    }
+  }, [ready, session, segments]);
+// 3️⃣ Heartbeat to detect session takeover
 useEffect(() => {
   if (!ready || !session) return;
 
-  async function checkTenant() {
+  let signingOut = false;
+
+  const interval = setInterval(async () => {
     try {
-      const res = await apiFetch('/api/tenant/me');
+      await apiFetch('/api/tenant/session');
+    } catch (err: any) {
 
-      if (res.needsCompany) {
-        router.replace('/create-company');
+      const message =
+        typeof err?.message === 'string'
+          ? err.message
+          : '';
+
+      const isSessionConflict =
+        err?.code === 'SESSION_CONFLICT';
+
+      const isAuthFailure =
+        message.includes('Invalid or expired token') ||
+        message.includes('Invalid JWT') ||
+        message.includes('Missing Authorization header');
+
+      if (isSessionConflict || isAuthFailure) {
+
+        if (signingOut) return;
+        signingOut = true;
+
+        console.warn('🚨 Authentication lost — logging out');
+
+        try {
+          await supabase.auth.signOut();
+        } catch {}
+
+        try {
+          await AsyncStorage.removeItem('tenantId');
+          await AsyncStorage.removeItem('deviceSessionId');
+        } catch {}
+
+        router.replace('/(auth)/login');
+        return;
       }
-    } catch (err) {
-      console.warn('Tenant check failed', err);
-    }
-  }
 
-  checkTenant();
+      console.warn('Heartbeat non-auth error', err);
+    }
+  }, 15000); // 15s for faster testing
+
+  return () => clearInterval(interval);
+
 }, [ready, session]);
-
-  // 2️⃣ Handle routing reactively
-  useEffect(() => {
-    if (!ready) return;
-
-    const inAuthGroup = segments[0] === '(auth)';
-
-    if (!session && !inAuthGroup) {
-      router.replace('/(auth)/login');
-      return;
-    }
-
-    if (session && inAuthGroup) {
-      router.replace('/main');
-      return;
-    }
-  }, [ready, session, segments]);
 
 if (!ready) return null;
 

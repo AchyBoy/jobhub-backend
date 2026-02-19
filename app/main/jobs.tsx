@@ -60,17 +60,17 @@ async function loadJobs() {
   }
 
   // 🔥 STEP 4 — Network refresh (non-blocking)
-  apiFetch('/api/job')
-    .then(async (res) => {
-      setJobs(res.jobs ?? []);
-      await AsyncStorage.setItem(
-        cacheKey,
-        JSON.stringify(res.jobs ?? [])
-      );
-    })
-    .catch(() => {
-      console.warn('Offline — using cached jobs');
-    });
+apiFetch('/api/job')
+  .then(async (res) => {
+    setJobs(res.jobs ?? []);
+    await AsyncStorage.setItem(
+      cacheKey,
+      JSON.stringify(res.jobs ?? [])
+    );
+  })
+.catch((err: any) => {
+  console.warn('Offline — using cached jobs');
+});
 }
 
 async function refreshJobsSilently() {

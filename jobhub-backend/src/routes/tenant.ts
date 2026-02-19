@@ -43,7 +43,7 @@ async function requireAuthNoTenant(req: any, res: any, next: any) {
  * Returns user + tenant context if provisioned.
  * If not provisioned, returns needsCompany = true.
  */
-router.get("/me", requireAuthNoTenant, async (req: any, res) => {
+router.get("/me", requireAuthWithTenant, async (req: any, res) => {
   const userId = req.user.id;
 
   const r = await pool.query(
@@ -154,6 +154,48 @@ router.post("/create", requireAuthNoTenant, async (req: any, res) => {
   } finally {
     client.release();
   }
+});
+
+/**
+ * POST /api/tenant/takeover
+ * Force this device to become the active session
+ */
+router.post("/takeover", requireAuthNoTenant, async (req: any, res) => {
+  const userId = req.user.id;
+
+  const deviceSession = req.headers["x-device-session"] as string | undefined;
+
+  if (!deviceSession) {
+    return res.status(400).json({
+      error: "Missing device session",
+      code: "SESSION_MISSING"
+    });
+  }
+
+  await pool.query(
+    `
+    UPDATE users
+    SET active_session_id = $1
+    WHERE id = $2
+    `,
+    [deviceSession, userId]
+  );
+
+  return res.json({ success: true });
+});
+
+/**
+ * GET /api/tenant/session
+ * Session-enforced ping (uses requireAuthWithTenant)
+ * Purpose: allow the app to detect takeover even when user is sitting on Home.
+ */
+router.get("/session", requireAuthWithTenant, async (req: any, res) => {
+  return res.json({
+    ok: true,
+    userId: req.user.id,
+    tenantId: req.user.tenantId,
+    role: req.user.role,
+  });
 });
 
 export default router;
