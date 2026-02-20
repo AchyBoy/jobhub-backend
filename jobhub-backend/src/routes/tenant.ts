@@ -40,53 +40,89 @@ async function requireAuthNoTenant(req: any, res: any, next: any) {
 
 /**
  * GET /api/me
- * Returns user + tenant context if provisioned.
- * If not provisioned, returns needsCompany = true.
+ * Bootstraps user row if missing.
+ * Determines whether tenant provisioning is required.
  */
-router.get("/me", requireAuthWithTenant, async (req: any, res) => {
+router.get("/me", requireAuthNoTenant, async (req: any, res) => {
   const userId = req.user.id;
 
-  const r = await pool.query(
+  // 1️⃣ Ensure user row exists (bootstrap)
+  let userRecord = await pool.query(
     `
-    SELECT
-      tu.tenant_id,
-      tu.role,
-      t.name as tenant_name
-    FROM tenant_users tu
-    JOIN tenants t ON t.id = tu.tenant_id
-    WHERE tu.user_id = $1
+    SELECT tenant_id, must_change_password
+    FROM users
+    WHERE id = $1
     LIMIT 1
     `,
     [userId]
   );
 
-  if (r.rowCount === 0) {
+  if (userRecord.rowCount === 0) {
+    await pool.query(
+      `
+      INSERT INTO users (id)
+      VALUES ($1)
+      `,
+      [userId]
+    );
+
+    userRecord = await pool.query(
+      `
+      SELECT tenant_id, must_change_password
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [userId]
+    );
+  }
+
+  const tenantId = userRecord.rows[0].tenant_id;
+
+  // 2️⃣ No tenant assigned yet → needs company creation
+  if (!tenantId) {
     return res.json({
       userId,
       needsCompany: true,
       tenantId: null,
       role: null,
       tenantName: null,
+      mustChangePassword: false,
     });
   }
 
-const userRecord = await pool.query(
-  `
-  SELECT must_change_password
-  FROM users
-  WHERE id = $1
-  `,
-  [userId]
-);
+  // 3️⃣ Load role from tenant_users
+  const roleResult = await pool.query(
+    `
+    SELECT role, is_active
+    FROM tenant_users
+    WHERE tenant_id = $1
+    AND user_id = $2
+    LIMIT 1
+    `,
+    [tenantId, userId]
+  );
 
-return res.json({
-  userId,
-  needsCompany: false,
-  tenantId: r.rows[0].tenant_id,
-  role: r.rows[0].role,
-  tenantName: r.rows[0].tenant_name,
-  mustChangePassword: userRecord.rows[0]?.must_change_password === true,
-});
+  if (roleResult.rowCount === 0) {
+    return res.json({
+      userId,
+      needsCompany: true,
+      tenantId: null,
+      role: null,
+      tenantName: null,
+      mustChangePassword: false,
+    });
+  }
+
+  return res.json({
+    userId,
+    needsCompany: false,
+    tenantId,
+    role: roleResult.rows[0].role,
+    tenantName: null,
+    mustChangePassword:
+      userRecord.rows[0].must_change_password === true,
+  });
 });
 
 /**

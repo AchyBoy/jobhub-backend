@@ -1,6 +1,6 @@
 //JobHub/app/job/[id]/send-links.tsx
 import * as Clipboard from 'expo-clipboard';
-
+import { apiFetch } from '../../../src/lib/apiClient';
 import * as Linking from 'expo-linking';
 import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,20 +22,32 @@ const [jobName, setJobName] = useState<string>('');
   const [notes, setNotes] = useState<JobNote[]>([]);
   const [activePhase, setActivePhase] = useState<string | null>(null);
   const [viewPhases, setViewPhases] = useState<string[]>([]);
+  const [editableMode, setEditableMode] = useState(false);
 
 const [phases, setPhases] = useState<string[]>([]);
+// Backend (Railway backend service)
+const API_BASE =
+  process.env.EXPO_PUBLIC_API_BASE ||
+  'https://adorable-passion-production-5ab7.up.railway.app';
+
+// Web app (Next.js frontend for crew links)
+const WEB_BASE =
+  process.env.EXPO_PUBLIC_APP_URL ||
+  'https://jobhub-web-production.up.railway.app';
 
 // Load phases from storage
 async function loadPhases() {
-  const stored = await AsyncStorage.getItem(`job:${id}:phases`);
-  if (stored) {
-    setPhases(JSON.parse(stored));
-  } else {
-    // Fallback to current hardcoded ones if nothing saved yet
-    const defaults = ['Rough', 'Trim', 'Final'];
-    setPhases(defaults);
-    // Optional: auto-save defaults so next time it's persistent
-    await AsyncStorage.setItem(`job:${id}:phases`, JSON.stringify(defaults));
+  try {
+    const res = await apiFetch('/api/phases');
+
+    if (Array.isArray(res?.phases)) {
+      setPhases(res.phases.map((p: any) => p.name));
+    } else {
+      setPhases([]);
+    }
+  } catch (err) {
+    console.error('Phase load failed', err);
+    setPhases([]);
   }
 }
 
@@ -53,7 +65,6 @@ useEffect(() => {
     setNotes(JSON.parse(stored));
   }
 
-const APP_BASE_URL = process.env.EXPO_PUBLIC_APP_URL || 'https://jobhub-web-production.up.railway.app';
 
 function buildCrewUrl() {
   if (!activePhase) return null;
@@ -65,7 +76,11 @@ function buildCrewUrl() {
     params.set('view', viewPhases.join(','));
   }
 
-  return `${APP_BASE_URL}/crew/job/${id}?${params.toString()}`;
+  if (editableMode) {
+    params.set('editable', '1');
+  }
+
+  return `${WEB_BASE}/crew/job/${id}?${params.toString()}`;
 }
 
 async function loadJob() {
@@ -80,18 +95,37 @@ async function loadJob() {
     }
   } catch {}
 
-  // fallback to backend
-  try {
-    const res = await fetch(`${APP_BASE_URL}/api/job/${id}`);
-    const json = await res.json();
-    if (json?.job?.name) {
-      setJobName(json.job.name);
-      await AsyncStorage.setItem(
-        `job:${id}:meta`,
-        JSON.stringify({ name: json.job.name })
-      );
-    }
-  } catch {}
+// fallback to backend
+try {
+const res = await apiFetch(`/api/job/${id}`);
+
+if (res?.job?.name) {
+  setJobName(res.job.name);
+
+  await AsyncStorage.setItem(
+    `job:${id}:meta`,
+    JSON.stringify({ name: res.job.name })
+  );
+}
+
+  if (!res.ok) {
+    console.error('Failed to load job name', res.status);
+    return;
+  }
+
+  const json = await res.json();
+
+  if (json?.job?.name) {
+    setJobName(json.job.name);
+
+    await AsyncStorage.setItem(
+      `job:${id}:meta`,
+      JSON.stringify({ name: json.job.name })
+    );
+  }
+} catch (err) {
+  console.error('Job load failed', err);
+}
 }
 
 function sendCrewLink() {
@@ -158,6 +192,35 @@ function sendCrewLink() {
 
 {activePhase && (
   <View style={{ marginTop: 20 }}>
+
+    <Text style={{ fontWeight: '700', marginBottom: 10 }}>
+      Link Type
+    </Text>
+
+    <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
+      <Pressable
+        onPress={() => setEditableMode(false)}
+        style={{
+          padding: 8,
+          borderRadius: 6,
+          backgroundColor: !editableMode ? '#dbeafe' : '#f3f4f6'
+        }}
+      >
+        <Text>Read Only</Text>
+      </Pressable>
+
+      <Pressable
+        onPress={() => setEditableMode(true)}
+        style={{
+          padding: 8,
+          borderRadius: 6,
+          backgroundColor: editableMode ? '#dbeafe' : '#f3f4f6'
+        }}
+      >
+        <Text>Editable Link</Text>
+      </Pressable>
+    </View>
+
     <Text style={{ fontWeight: '700', marginBottom: 6 }}>
       Generated link:
     </Text>

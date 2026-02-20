@@ -52,7 +52,26 @@ if (sessionError || !freshSessionData.session?.access_token) {
 console.log('Fresh token retrieved after login:', freshSessionData.session.access_token.substring(0, 10) + '...');
 
 try {
-  // 🔐 Verify session ownership
+  // 🔎 Check provisioning state FIRST
+  const me = await apiFetch('/api/tenant/me');
+
+  // 🆕 No company yet → go create one
+  if (me.needsCompany) {
+    console.log('🆕 User not provisioned — redirecting to create company');
+    router.replace('/create-company');
+    setLoading(false);
+    return;
+  }
+
+  // 🔐 Must change password
+  if (me.mustChangePassword) {
+    console.log('🔑 User must change password — redirecting');
+    router.replace('/update-password');
+    setLoading(false);
+    return;
+  }
+
+  // 🔐 Verify session ownership (device enforcement)
   await apiFetch('/api/tenant/session');
 
   router.replace('/main');

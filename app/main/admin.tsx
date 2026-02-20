@@ -7,6 +7,9 @@ import {
   Pressable,
   TextInput,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
+  Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
@@ -47,33 +50,35 @@ useEffect(() => {
   }
 
 async function addUser() {
+  Keyboard.dismiss(); // ← add this first line
+
   if (!email.trim() || !password.trim()) return;
 
-    setLoading(true);
+  setLoading(true);
 
-    try {
-await apiFetch('/api/tenant/users/add', {
-  method: 'POST',
-  body: JSON.stringify({
-    email: email.trim(),
-    newRole: role,
-    password: password.trim(),
-  }),
-});
+  try {
+    await apiFetch('/api/tenant/users/add', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: email.trim(),
+        newRole: role,
+        password: password.trim(),
+      }),
+    });
 
-setEmail('');
-setPassword('');
-await loadUsers();
-Alert.alert('Success', 'User added successfully.');
-    } catch (err: any) {
-      Alert.alert(
-        'Error',
-        err?.message ?? 'Failed to add user.'
-      );
-    } finally {
-      setLoading(false);
-    }
+    setEmail('');
+    setPassword('');
+    await loadUsers();
+    Alert.alert('Success', 'User added successfully.');
+  } catch (err: any) {
+    Alert.alert(
+      'Error',
+      err?.message ?? 'Failed to add user.'
+    );
+  } finally {
+    setLoading(false);
   }
+}
 
   async function deactivateUser(userId: string) {
     Alert.alert(
@@ -144,9 +149,16 @@ async function resetPassword(userId: string) {
   );
 }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView>
+return (
+  <SafeAreaView style={styles.container}>
+    <KeyboardAvoidingView
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      style={{ flex: 1 }}
+    >
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingBottom: 40 }}
+      >
         <Text style={styles.title}>Tenant Users</Text>
 
         {users.map((u: any) => (
@@ -270,6 +282,7 @@ async function resetPassword(userId: string) {
           </Text>
         </Pressable>
       </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
