@@ -53,7 +53,6 @@ console.log('Fresh token retrieved after login:', freshSessionData.session.acces
 
 try {
   // 🔐 Verify session ownership
-  await apiFetch('/api/job');
 
   router.replace('/main');
   setLoading(false);
@@ -106,8 +105,6 @@ Alert.alert(
       await apiFetch('/api/tenant/takeover', { method: 'POST' });
 
       console.log('Takeover succeeded – verifying ownership');
-
-      await apiFetch('/api/job');
 
       console.log('Verify passed – navigating to main');
 
