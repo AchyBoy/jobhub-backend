@@ -53,6 +53,7 @@ console.log('Fresh token retrieved after login:', freshSessionData.session.acces
 
 try {
   // 🔐 Verify session ownership
+  await apiFetch('/api/tenant/session');
 
   router.replace('/main');
   setLoading(false);
@@ -104,11 +105,13 @@ Alert.alert(
 
       await apiFetch('/api/tenant/takeover', { method: 'POST' });
 
-      console.log('Takeover succeeded – verifying ownership');
+console.log('Takeover succeeded – verifying ownership');
 
-      console.log('Verify passed – navigating to main');
+await apiFetch('/api/tenant/session');
 
-      router.replace('/main');
+console.log('Verify passed – navigating to main');
+
+router.replace('/main');
     } catch (err: any) {
       console.error('Takeover failed:', err);
       let msg = "Unable to take over session. Please try again.";
