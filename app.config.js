@@ -11,9 +11,10 @@ export default {
     scheme: 'jobhub',
     userInterfaceStyle: 'automatic',
 
-    ios: {
+ios: {
   supportsTablet: true,
   bundleIdentifier: 'com.jobhubgo.app',
+  buildNumber: '2',
   infoPlist: {
     ITSAppUsesNonExemptEncryption: false,
   },
