@@ -41,6 +41,35 @@ mounted = false;
     };
   }, []);
   
+// 1.5️⃣ Ensure tenant exists and password state is valid
+useEffect(() => {
+  if (!ready || !session) return;
+
+  const inAuthGroup = segments[0] === '(auth)';
+  if (inAuthGroup) return;
+
+  async function checkTenant() {
+    try {
+      const res = await apiFetch('/api/tenant/me');
+
+      if (res.needsCompany) {
+        router.replace('/create-company');
+        return;
+      }
+
+      if (res.mustChangePassword) {
+        router.replace('/(auth)/update-password');
+        return;
+      }
+
+    } catch (err) {
+      console.warn('Tenant check failed', err);
+    }
+  }
+
+  checkTenant();
+
+}, [ready, session, segments]);
 
 // 2️⃣ Handle routing reactively
 useEffect(() => {
@@ -66,7 +95,56 @@ if (session && inAuthGroup && !isUpdatePassword) {
 
   }, [ready, session, segments]);
 // 3️⃣ Heartbeat to detect session takeover
+useEffect(() => {
+  if (!ready || !session) return;
 
+  let signingOut = false;
+
+  const interval = setInterval(async () => {
+    try {
+      await apiFetch('/api/tenant/session');
+    } catch (err: any) {
+
+      const message =
+        typeof err?.message === 'string'
+          ? err.message
+          : '';
+
+      const isSessionConflict =
+        err?.code === 'SESSION_CONFLICT';
+
+      const isAuthFailure =
+        message.includes('Invalid or expired token') ||
+        message.includes('Invalid JWT') ||
+        message.includes('Missing Authorization header');
+
+      if (isSessionConflict || isAuthFailure) {
+
+        if (signingOut) return;
+        signingOut = true;
+
+        console.warn('🚨 Authentication lost — logging out');
+
+        try {
+          await supabase.auth.signOut();
+        } catch {}
+
+        try {
+          await AsyncStorage.removeItem('tenantId');
+          await AsyncStorage.removeItem('deviceSessionId');
+        } catch {}
+
+        router.replace('/(auth)/login');
+        return;
+      }
+
+      console.warn('Heartbeat non-auth error', err);
+    }
+  }, 15000); // 15s for faster testing
+
+  return () => clearInterval(interval);
+
+}, [ready, session]);
 
 if (!ready) return null;
 
