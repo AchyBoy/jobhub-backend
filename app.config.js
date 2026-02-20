@@ -56,11 +56,13 @@ export default {
     },
 
     // 🔑 THIS IS WHAT UNBLOCKS POSTGRES
-    extra: {
-      EXPO_PUBLIC_API_BASE: process.env.EXPO_PUBLIC_API_BASE,
-      eas: {
-        projectId: "b3f91b32-f58f-4740-b078-68338aed0767",
-      },
-    },
+extra: {
+  EXPO_PUBLIC_API_BASE:
+    process.env.EXPO_PUBLIC_API_BASE ||
+    "https://api.jobhubgo.com",
+  eas: {
+    projectId: "b3f91b32-f58f-4740-b078-68338aed0767",
+  },
+},
   },
 };
