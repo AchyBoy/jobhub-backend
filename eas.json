@@ -10,13 +10,17 @@
     "preview": {
       "distribution": "internal",
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://api.jobhubgo.com"
+        "EXPO_PUBLIC_API_BASE": "https://api.jobhubgo.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ohynsympiwlwaursbvsn.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9oeW5zeW1waXdsd2F1cnNidnNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MjM0MjQsImV4cCI6MjA4NTQ5OTQyNH0.L_076h5iEkwO4EtV05QlWbLXNsaGLryesuXXpdSQWYk"
       }
     },
     "production": {
       "distribution": "store",
       "env": {
-        "EXPO_PUBLIC_API_BASE": "https://api.jobhubgo.com"
+        "EXPO_PUBLIC_API_BASE": "https://api.jobhubgo.com",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://ohynsympiwlwaursbvsn.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInRlZiI6Im9oeW5zeW1waXdsd2F1cnNidnNuIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk5MjM0MjQsImV4cCI6MjA4NTQ5OTQyNH0.L_076h5iEkwO4EtV05QlWbLXNsaGLryesuXXpdSQWYk"
       }
     }
   }
