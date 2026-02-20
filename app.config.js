@@ -59,8 +59,11 @@ ios: {
     // 🔑 THIS IS WHAT UNBLOCKS POSTGRES
 extra: {
   EXPO_PUBLIC_API_BASE:
-    process.env.EXPO_PUBLIC_API_BASE ||
-    "https://api.jobhubgo.com",
+    process.env.EXPO_PUBLIC_API_BASE || "https://api.jobhubgo.com",
+
+  EXPO_PUBLIC_SUPABASE_URL: process.env.EXPO_PUBLIC_SUPABASE_URL,
+  EXPO_PUBLIC_SUPABASE_ANON_KEY: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY,
+
   eas: {
     projectId: "b3f91b32-f58f-4740-b078-68338aed0767",
   },
