@@ -5,6 +5,8 @@ import { useRouter } from 'expo-router';
 import { supabase } from '../../src/lib/supabase';
 import { useEffect, useState } from 'react';
 import { apiFetch } from '../../src/lib/apiClient';
+import { registerForPushNotifications } from "../../src/lib/push";
+
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -109,6 +111,37 @@ useEffect(() => {
     </Pressable>
   </>
 )}
+
+
+
+<Pressable //PUSH NOTIFICATIONS BUTTON
+  style={[styles.item, { marginTop: 16 }]}
+  onPress={async () => {
+    try {
+      const token = await registerForPushNotifications();
+      if (!token) {
+        alert("Push permission not granted");
+        return;
+      }
+
+      await apiFetch("/api/push/register", {
+        method: "POST",
+        body: JSON.stringify({
+          expoPushToken: token,
+        }),
+      });
+
+      alert("Push notifications enabled");
+    } catch (err) {
+      console.log("Push registration failed", err);
+      alert("Push registration failed");
+    }
+  }}
+>
+  <Text style={styles.itemText}>
+    Enable Push Notifications
+  </Text>
+</Pressable>
 
 <Pressable
   style={[styles.item, { marginTop: 16, backgroundColor: '#fee2e2' }]}

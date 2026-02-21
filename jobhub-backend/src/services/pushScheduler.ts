@@ -28,6 +28,8 @@ async function sendPushToTenant(
   title: string,
   body: string
 ) {
+  console.log("🔎 sendPushToTenant called for tenant:", tenantId);
+
   const tokenResult = await pool.query(
     `
     SELECT expo_push_token
@@ -37,7 +39,12 @@ async function sendPushToTenant(
     [tenantId]
   );
 
-  if (tokenResult.rowCount === 0) return;
+  console.log("🔎 Tokens found:", tokenResult.rowCount);
+
+  if (tokenResult.rowCount === 0) {
+    console.log("⚠️ No push tokens for tenant:", tenantId);
+    return;
+  }
 
   const messages = tokenResult.rows.map((row) => ({
     to: row.expo_push_token,
@@ -46,17 +53,19 @@ async function sendPushToTenant(
     body,
   }));
 
-const response = await fetch(EXPO_PUSH_URL, {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify(messages),
-});
+  console.log("📤 Sending push to Expo:", JSON.stringify(messages, null, 2));
 
-const data = await response.json();
+  const response = await fetch(EXPO_PUSH_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(messages),
+  });
 
-console.log("📨 Expo push response:", JSON.stringify(data, null, 2));
+  const data = await response.json();
+
+  console.log("📨 Expo push response:", JSON.stringify(data, null, 2));
 }
 
 async function processThreeDayNotifications() {
@@ -129,6 +138,7 @@ export function startPushScheduler() {
   console.log("📣 Push scheduler started");
 
   setInterval(async () => {
+  console.log("⏱ Scheduler tick", new Date().toISOString());
     try {
       await processThreeDayNotifications();
       await processOneHourNotifications();
