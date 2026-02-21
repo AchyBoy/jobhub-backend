@@ -46,13 +46,17 @@ async function sendPushToTenant(
     body,
   }));
 
-  await fetch(EXPO_PUSH_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(messages),
-  });
+const response = await fetch(EXPO_PUSH_URL, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(messages),
+});
+
+const data = await response.json();
+
+console.log("📨 Expo push response:", JSON.stringify(data, null, 2));
 }
 
 async function processThreeDayNotifications() {
