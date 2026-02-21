@@ -68,7 +68,8 @@ router.post("/", async (req: any, res) => {
         item_code = EXCLUDED.item_code,
         phase = EXCLUDED.phase,
         supplier_id = EXCLUDED.supplier_id,
-        qty_needed = EXCLUDED.qty_needed
+        qty_needed = EXCLUDED.qty_needed,
+        updated_at = NOW()
       `,
       [
         id,
@@ -135,7 +136,8 @@ qty_from_storage = COALESCE($10::int, qty_from_storage),
 qty_ordered = COALESCE($11::int, qty_ordered),
 order_id = COALESCE($12, order_id),
 date_storage_ordered = COALESCE($13, date_storage_ordered),
-storage_order_id = COALESCE($14, storage_order_id)
+storage_order_id = COALESCE($14, storage_order_id),
+updated_at = NOW()
 WHERE id = $15
 AND tenant_id = $16
       `,

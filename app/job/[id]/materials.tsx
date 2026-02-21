@@ -17,8 +17,14 @@ import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
 import { Stack } from 'expo-router';
+import { useMemo } from 'react';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 import { generateOrderPdf } from '../../../src/lib/pdfGenerator';
+import {
+  persistLocalPdf,
+  getValidLocalPdf,
+  downloadAndPersistPdf,
+} from '../../../src/lib/pdfLocalStore';
 import * as Linking from 'expo-linking';
 import { useRef } from 'react';
 import { useRouter } from 'expo-router';
@@ -69,30 +75,43 @@ function isStorageOrdered(material: any) {
 }
 
 // Group by phase
-const materialsByPhase = materials.reduce((acc: any, m: any) => {
-  if (!acc[m.phase]) acc[m.phase] = [];
-  acc[m.phase].push(m);
-  return acc;
-}, {});
+const {
+  materialsByPhase,
+  materialsBySupplier,
+  internalMaterials,
+  activeSupplierIds,
+} = useMemo(() => {
+  const byPhase: Record<string, any[]> = {};
+  const bySupplier: Record<string, any[]> = {};
+  const internal: any[] = [];
 
-// Group by supplier
-const materialsBySupplier = materials.reduce((acc: any, m: any) => {
-  if (!m.supplier_id) return acc;
+  for (const m of materials) {
+    // group by phase
+    if (!byPhase[m.phase]) byPhase[m.phase] = [];
+    byPhase[m.phase].push(m);
 
-  if (!acc[m.supplier_id]) acc[m.supplier_id] = [];
-  acc[m.supplier_id].push(m);
+    // group by supplier
+    if (m.supplier_id) {
+      if (!bySupplier[m.supplier_id]) bySupplier[m.supplier_id] = [];
+      bySupplier[m.supplier_id].push(m);
+    }
 
-  return acc;
-}, {});
+    // internal bucket
+    if (
+      (m.qty_from_storage ?? 0) > 0 ||
+      (m.qty_on_hand_applied ?? 0) > 0
+    ) {
+      internal.push(m);
+    }
+  }
 
-const activeSupplierIds = Object.keys(materialsBySupplier);
-
-// ✅ ADD THIS HERE
-const internalMaterials = materials.filter(
-  m =>
-    (m.qty_from_storage ?? 0) > 0 ||
-    (m.qty_on_hand_applied ?? 0) > 0
-);
+  return {
+    materialsByPhase: byPhase,
+    materialsBySupplier: bySupplier,
+    internalMaterials: internal,
+    activeSupplierIds: Object.keys(bySupplier),
+  };
+}, [materials]);
 
   useEffect(() => {
     loadMaterials();
@@ -118,14 +137,45 @@ async function loadJob() {
 async function loadMaterials() {
   const key = `job:${jobId}:materials`;
 
+  // 1️⃣ LOAD LOCAL FIRST (instant render)
+  const local = await AsyncStorage.getItem(key);
+  if (local) {
+    try {
+      const parsed = JSON.parse(local);
+      setMaterials(parsed);
+    } catch {}
+  }
+
+  // 2️⃣ THEN REFRESH FROM API (non-blocking feel)
   try {
-    const res = await apiFetch(`/api/materials?jobId=${jobId}`);
-    const list = res?.materials ?? [];
-    setMaterials(list);
-    await AsyncStorage.setItem(key, JSON.stringify(list));
+const res = await apiFetch(`/api/materials?jobId=${jobId}`);
+const serverList = res?.materials ?? [];
+
+const localRaw = await AsyncStorage.getItem(key);
+const localList = localRaw ? JSON.parse(localRaw) : [];
+
+const localMap: Record<string, any> = {};
+localList.forEach((m: any) => {
+  localMap[m.id] = m;
+});
+
+const merged = serverList.map((serverItem: any) => {
+  const localItem = localMap[serverItem.id];
+
+  if (!localItem) return serverItem;
+
+  const serverUpdated = new Date(serverItem.updated_at ?? 0).getTime();
+  const localUpdated = new Date(localItem.updated_at ?? 0).getTime();
+
+  return serverUpdated >= localUpdated
+    ? serverItem
+    : localItem;
+});
+
+setMaterials(merged);
+await AsyncStorage.setItem(key, JSON.stringify(merged));
   } catch {
-    const local = await AsyncStorage.getItem(key);
-    if (local) setMaterials(JSON.parse(local));
+    // silently ignore — offline mode
   }
 }
 
@@ -338,16 +388,24 @@ const maxAllowed =
 }
 
 function updateQtyLocal(materialId: string, delta: number) {
-  setMaterials(prev =>
-    prev.map(m => {
+  setMaterials(prev => {
+    const updated = prev.map(m => {
       if (m.id !== materialId) return m;
 
       const current = m.qty_needed ?? 0;
       const newQty = Math.max(0, current + delta);
 
       return { ...m, qty_needed: newQty };
-    })
-  );
+    });
+
+    // Immediately persist local copy for offline-first feel
+    AsyncStorage.setItem(
+      `job:${jobId}:materials`,
+      JSON.stringify(updated)
+    );
+
+    return updated;
+  });
 }
 
 function updateOnHandLocal(materialId: string, delta: number) {
@@ -616,6 +674,9 @@ items: itemsToOrder.map(it => {
 }),
 });
 
+// 🔐 Persist locally for 7 days
+await persistLocalPdf(orderId, uri);
+
     // 1️⃣ Upload order to backend
     await apiFetch('/api/orders/create', {
       method: 'POST',
@@ -651,7 +712,7 @@ const body =
       body,
     });
 
-    // ✅ Mark supplier items as ordered
+    // ✅ Mark supplier items as ordered - this handles qty_needed and qty_ordered
 if (!supplier?.isInternal) {
 
   const now = new Date().toISOString();
@@ -767,6 +828,7 @@ return (
     title: jobName
       ? `${jobName} - Materials`
       : 'Materials',
+    headerShadowVisible: false,
   }}
 />
 <SafeAreaView style={{ flex: 1 }} edges={['left','right','bottom']}>
@@ -1174,26 +1236,44 @@ style={[
       </Text>
     )}
 
-    {material.order_id && (
-      <Pressable
-        onPress={async () => {
-          try {
-            const res = await apiFetch(
-              `/api/orders/${material.order_id}/pdf`
-            );
-            if (res?.url) {
-              await Linking.openURL(res.url);
-            }
-          } catch {
-            alert('Unable to load PDF');
-          }
-        }}
-      >
-        <Text style={{ color: '#2563eb', fontSize: 12 }}>
-          View PDF
-        </Text>
-      </Pressable>
-    )}
+{material.order_id && (
+  <Pressable
+    onPress={async () => {
+      try {
+        const orderId = material.order_id;
+
+        const local = await getValidLocalPdf(orderId);
+        if (local) {
+          await Linking.openURL(local);
+          return;
+        }
+
+        const res = await apiFetch(
+          `/api/orders/${orderId}/pdf`
+        );
+        const signedUrl = res?.url;
+
+        if (!signedUrl) {
+          alert('Unable to load PDF');
+          return;
+        }
+
+        const downloaded = await downloadAndPersistPdf(
+          orderId,
+          signedUrl
+        );
+
+        await Linking.openURL(downloaded);
+      } catch {
+        alert('Unable to load PDF');
+      }
+    }}
+  >
+    <Text style={{ color: '#2563eb', fontSize: 12 }}>
+      View PDF
+    </Text>
+  </Pressable>
+)}
   </View>
 )}
 
@@ -1249,37 +1329,54 @@ style={[
   }}
 />
 
-  {/* +/- ROW */}
-  <View
+{/* +/- ROW */}
+<View
+  style={{
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: 120,
+    marginBottom: 12,
+  }}
+>
+  {/* MINUS */}
+  <Pressable
+    onPressIn={() => startHold(() => updateQtyLocal(material.id, -1))}
+    onPressOut={async () => {
+      stopHold();
+
+      // read latest value from functional update pattern
+      const latest = materials.find(m => m.id === material.id);
+      if (!latest) return;
+
+      await setQtyDirect(latest, latest.qty_needed ?? 0);
+    }}
     style={{
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      width: 120, // controls spacing distance
-      marginBottom: 12,
+      paddingHorizontal: 18,
+      paddingVertical: 6,
     }}
   >
-    <Pressable
-      onPressIn={() => startHold(() => updateQtyLocal(material.id, -1))}
-      onPressOut={stopHold}
-      style={{
-        paddingHorizontal: 18,
-        paddingVertical: 6,
-      }}
-    >
-      <Text style={[styles.qtyBtn, { fontSize: 26 }]}>−</Text>
-    </Pressable>
+    <Text style={[styles.qtyBtn, { fontSize: 26 }]}>−</Text>
+  </Pressable>
 
-    <Pressable
-      onPressIn={() => startHold(() => updateQtyLocal(material.id, 1))}
-      onPressOut={stopHold}
-      style={{
-        paddingHorizontal: 18,
-        paddingVertical: 6,
-      }}
-    >
-      <Text style={[styles.qtyBtn, { fontSize: 26 }]}>+</Text>
-    </Pressable>
-  </View>
+  {/* PLUS */}
+  <Pressable
+    onPressIn={() => startHold(() => updateQtyLocal(material.id, 1))}
+    onPressOut={async () => {
+      stopHold();
+
+      const latest = materials.find(m => m.id === material.id);
+      if (!latest) return;
+
+      await setQtyDirect(latest, latest.qty_needed ?? 0);
+    }}
+    style={{
+      paddingHorizontal: 18,
+      paddingVertical: 6,
+    }}
+  >
+    <Text style={[styles.qtyBtn, { fontSize: 26 }]}>+</Text>
+  </Pressable>
+</View>
 
   {/* On-Hand stays unchanged */}
 <View style={{ marginTop: 8 }}>
@@ -1394,12 +1491,30 @@ isStorageOrdered(material) && {
   <Pressable
     onPress={async () => {
       try {
-        const res = await apiFetch(
-          `/api/orders/${material.storage_order_id}/pdf`
-        );
-        if (res?.url) {
-          await Linking.openURL(res.url);
+        const orderId = material.storage_order_id;
+
+        const local = await getValidLocalPdf(orderId);
+        if (local) {
+          await Linking.openURL(local);
+          return;
         }
+
+        const res = await apiFetch(
+          `/api/orders/${orderId}/pdf`
+        );
+        const signedUrl = res?.url;
+
+        if (!signedUrl) {
+          alert('Unable to load PDF');
+          return;
+        }
+
+        const downloaded = await downloadAndPersistPdf(
+          orderId,
+          signedUrl
+        );
+
+        await Linking.openURL(downloaded);
       } catch {
         alert('Unable to load PDF');
       }
@@ -1505,12 +1620,28 @@ isPhaseOrdered(material) && {
       <Pressable
         onPress={async () => {
           try {
-            const res = await apiFetch(
-              `/api/orders/${material.order_id}/pdf`
-            );
-            if (res?.url) {
-              await Linking.openURL(res.url);
-            }
+const orderId = material.order_id;
+
+const local = await getValidLocalPdf(orderId);
+if (local) {
+  await Linking.openURL(local);
+  return;
+}
+
+const res = await apiFetch(`/api/orders/${orderId}/pdf`);
+const signedUrl = res?.url;
+
+if (!signedUrl) {
+  alert('Unable to load PDF');
+  return;
+}
+
+const downloaded = await downloadAndPersistPdf(
+  orderId,
+  signedUrl
+);
+
+await Linking.openURL(downloaded);
           } catch {
             alert('Unable to load PDF');
           }
