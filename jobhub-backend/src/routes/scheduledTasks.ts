@@ -162,10 +162,12 @@ const {
   scheduledAt,
   status,
   crewId,
+  emailConfirmedSentAt,
 }: {
   scheduledAt?: string;
   status?: 'scheduled' | 'in_progress' | 'complete';
   crewId?: string;
+  emailConfirmedSentAt?: string;
 } = req.body;
 
       // 1️⃣ Ensure task exists and belongs to tenant
@@ -230,6 +232,11 @@ if (crewId) {
           updates.push(`completed_at = NULL`);
         }
       }
+
+      if (emailConfirmedSentAt) {
+  updates.push(`email_confirmed_sent_at = $${idx++}`);
+  values.push(emailConfirmedSentAt);
+}
 
       if (updates.length === 0) {
         return res.status(400).json({ error: "No fields to update" });

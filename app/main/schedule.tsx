@@ -7,11 +7,16 @@ import {
   ScrollView,
   Pressable,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
+import * as Linking from 'expo-linking';
+import { Keyboard } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { Stack } from 'expo-router';
+import { useRef } from 'react';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 
 export default function ScheduleScreen() {
@@ -21,6 +26,7 @@ const [crews, setCrews] = useState<any[]>([]);
 const [phases, setPhases] = useState<string[]>([]);
 const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
 const [currentMonth, setCurrentMonth] = useState(new Date());
+const scrollRef = useRef<ScrollView>(null);
 const [selectedDate, setSelectedDate] = useState<string | null>(null);
 const [expandedId, setExpandedId] = useState<string | null>(null);
 const [isCreating, setIsCreating] = useState(false);
@@ -79,6 +85,81 @@ useEffect(() => {
   loadScheduledTasks();
   loadDirectories();
 }, []);
+
+async function sendScheduleEmail(task: any) {
+const crew = crews.find(c => c.id === task.crew_id);
+
+if (!crew) {
+  console.log('NO CREW FOUND');
+  return;
+}
+
+const emailContact = crew.contacts?.find(
+  (c: any) => c.type === 'email'
+);
+
+if (!emailContact?.value) {
+  console.log('NO EMAIL CONTACT FOUND');
+  return;
+}
+
+const crewEmail = emailContact.value;
+
+  // Build full schedule for that crew
+  const crewTasks = scheduledTasks
+    .filter(t => t.crew_id === task.crew_id)
+    .sort(
+      (a, b) =>
+        new Date(a.scheduled_at).getTime() -
+        new Date(b.scheduled_at).getTime()
+    );
+
+  const scheduleText = crewTasks
+    .map(t => {
+      return `${new Date(t.scheduled_at).toLocaleString()}
+${t.job_name}
+Phase: ${t.phase}
+Status: ${t.status}`;
+    })
+    .join('\n\n');
+
+  const subject = encodeURIComponent(
+    `Schedule Update - ${crew.name}`
+  );
+
+  const body = encodeURIComponent(
+`New Scheduled Item:
+
+${new Date(task.scheduled_at).toLocaleString()}
+${task.job_name}
+Phase: ${task.phase}
+
+------------------------
+
+Full Schedule:
+
+${scheduleText}`
+  );
+
+  const url = `mailto:${crewEmail}?subject=${subject}&body=${body}`;
+
+  // Open native mail app
+console.log('📧 Opening URL:', url);
+
+await Linking.openURL(url);
+
+await Linking.openURL(url);
+
+  // Immediately mark as sent (no confirmation model)
+  try {
+    await apiFetch(`/api/scheduled-tasks/${task.id}`, {
+      method: 'PATCH',
+     body: JSON.stringify({
+  emailConfirmedSentAt: new Date().toISOString(),
+}),
+    });
+  } catch {}
+}
 
   async function updateTaskStatus(taskId: string, newStatus: 'scheduled' | 'complete') {
   // 1️⃣ Immediate local update
@@ -405,12 +486,15 @@ const taskDate = new Date(t.scheduled_at);
 return (
 <>
   <Stack.Screen options={{ title: 'Schedule' }} />
+
   <View style={styles.container}>
-  <ScrollView
-    showsVerticalScrollIndicator={false}
-    keyboardShouldPersistTaps="handled"
-    contentContainerStyle={{ paddingBottom: 40 }}
-  >
+<ScrollView
+ref={scrollRef}
+  showsVerticalScrollIndicator={false}
+  keyboardShouldPersistTaps="handled"
+  keyboardDismissMode="interactive"
+  contentContainerStyle={{ paddingBottom: 300 }}
+>
 
 
   {/* FILTER TOGGLE */}
@@ -927,13 +1011,22 @@ onPress={() => {
 </Pressable>
 
     {isCreating && (
-  <View style={{ marginBottom: 20 }}>
+  <KeyboardAvoidingView
+    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    keyboardVerticalOffset={140}
+  >
+    <View style={{ marginBottom: 20 }}>
 <Text>Select Job:</Text>
 
 <TextInput
   placeholder="Search job..."
   value={jobSearch}
   onChangeText={setJobSearch}
+  onFocus={() => {
+  setTimeout(() => {
+    scrollRef.current?.scrollToEnd({ animated: true });
+  }, 250);
+}}
   style={{
     borderWidth: 1,
     borderColor: '#ddd',
@@ -948,9 +1041,10 @@ onPress={() => {
     <Pressable
       key={j.id}
       onPress={() => {
-        setNewTaskJobId(j.id);
-        setJobSearch(j.name);
-      }}
+  setNewTaskJobId(j.id);
+  setJobSearch(j.name);
+  Keyboard.dismiss();
+}}
       style={{ paddingVertical: 4 }}
     >
       <Text
@@ -1034,7 +1128,8 @@ onPress={() => {
         Save Task
       </Text>
     </Pressable>
-  </View>
+    </View>
+  </KeyboardAvoidingView>
 )}
 
 {tasksForSelectedDate().map(task => (
@@ -1204,8 +1299,26 @@ onLongPress={() => {
 
 <View style={{ marginTop: 12 }}>
   <Pressable
+    onPress={(e) => {
+      e.stopPropagation(); // prevent parent Pressable toggle
+      console.log('🔥 SEND PRESSED');
+      sendScheduleEmail(task);
+    }}
+    style={{
+      paddingVertical: 8,
+    }}
+  >
+    <Text style={{ color: 'red', fontWeight: '700' }}>
+      Send To Crew
+    </Text>
+  </Pressable>
+</View>
+
+<View style={{ marginTop: 12 }}>
+  <Pressable
     onPress={() => unscheduleTask(task)}
   >
+  
     <Text style={{ color: 'red', fontWeight: '700' }}>
       Unschedule
     </Text>
@@ -1251,7 +1364,7 @@ onLongPress={() => {
             </View>
           ))}
     </View>
-  </ScrollView>
+    </ScrollView>
   </View>
 </>
 );
