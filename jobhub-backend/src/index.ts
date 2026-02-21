@@ -16,6 +16,7 @@ import jobRoutes from "./routes/job";
 import tenantRoutes from "./routes/tenant";
 import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
+import pushRoutes from "./routes/push";
 import ordersRouter from "./routes/orders";
 import tenantUsersRoutes from "./routes/tenantUsers";
 import contractorsRoutes from "./routes/contractors";
@@ -28,6 +29,7 @@ import materialsRoutes from "./routes/materials";
 import jobSupervisorsRoutes from "./routes/jobSupervisors";
 import suppliersRoutes from "./routes/suppliers";
 import supervisorsRoutes from "./routes/supervisors";
+import { startPushScheduler } from "./services/pushScheduler";
 import permitCompaniesRoutes from "./routes/permitCompanies";
 import jobPermitCompaniesRoutes from "./routes/jobPermitCompanies";
 import inspectionsRoutes from "./routes/inspections";
@@ -67,6 +69,7 @@ app.use("/api/contractors", contractorsRoutes);
 app.use("/api/vendors", vendorsRoutes);
 app.use("/api/supervisors", supervisorsRoutes);
 app.use("/api/jobs", jobCrewsRoutes);
+app.use("/api/push", pushRoutes);
 app.use("/api/jobs", jobSupervisorsRoutes);
 app.use("/api/jobs", jobContractorsRoutes);
 app.use("/api/jobs", jobVendorsRoutes);
@@ -111,8 +114,12 @@ const port = process.env.PORT ? Number(process.env.PORT) : 8787;
 
 
 app.listen(port, "0.0.0.0", () => {
-// ⚠️ Startup verification
-// DO NOT REMOVE — ensures DB persistence works in production
-testPostgresConnection();
+  // ⚠️ Startup verification
+  // DO NOT REMOVE — ensures DB persistence works in production
+  testPostgresConnection();
+
   console.log("🚀 Backend listening on port", port);
+
+  // 📣 Start push scheduler
+  startPushScheduler();
 });
