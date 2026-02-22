@@ -1,6 +1,6 @@
 //JobHub/app/main/jobs.tsx
 
-import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { supabase } from '../../src/lib/supabase';
@@ -18,6 +18,7 @@ type Job = {
 
 export default function JobsScreen() {
   const router = useRouter();
+  const [role, setRole] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
 const [sortMode, setSortMode] = useState<
   'alpha-asc' | 'alpha-desc' | 'recent'
@@ -97,9 +98,19 @@ async function refreshJobsSilently() {
   // Reload every time tab is focused
 useFocusEffect(
   React.useCallback(() => {
-    loadJobs(); // always load cache first
+    loadJobs(); // instant load from cache
+    loadRoleSilently(); // async, non-blocking
   }, [])
 );
+
+async function loadRoleSilently() {
+  try {
+    const me = await apiFetch('/api/tenant/me');
+    setRole(me.role);
+  } catch {
+    setRole(null);
+  }
+}
 
   function getSortedJobs(list: Job[]) {
   const sorted = [...list];
@@ -152,6 +163,42 @@ function openJob(job: Job) {
   });
 }
 
+async function deleteJob(job: Job) {
+  Alert.alert(
+    'Delete Job',
+    'This will permanently delete this job and ALL related data.\n\nThis action cannot be undone.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await apiFetch(`/api/job/${job.id}`, {
+              method: 'DELETE',
+            });
+
+            // Remove locally
+            setJobs(prev => prev.filter(j => j.id !== job.id));
+
+            // Clean cached job data
+            await AsyncStorage.multiRemove([
+              `job:${job.id}:crews`,
+              `job:${job.id}:defaults`,
+            ]);
+
+            // Refresh silently to sync everything
+            refreshJobsSilently();
+
+          } catch {
+            Alert.alert('Delete failed');
+          }
+        },
+      },
+    ]
+  );
+}
+
 return (
 <>
   <Stack.Screen options={{ title: 'Jobs' }} />
@@ -192,8 +239,17 @@ return (
 <Pressable
   style={styles.card}
   onPress={() => openJob(item)}
+  onLongPress={
+    role === 'owner' || role === 'admin'
+      ? () => deleteJob(item)
+      : undefined
+  }
 >
   <Text style={styles.jobName}>{item.name}</Text>
+
+{(role === 'owner' || role === 'admin') && (
+  <Text style={styles.hint}>Hold to delete</Text>
+)}
 
   {/* 👇 JOB TYPE LABEL */}
 <Text
@@ -291,6 +347,11 @@ borderColor: '#bfdbfe',
     opacity: 0.7,
     marginTop: 4,
   },
+  hint: {
+  fontSize: 12,
+  marginTop: 4,
+  opacity: 0.4,
+},
 
   jobType: {
     marginTop: 6,

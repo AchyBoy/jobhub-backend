@@ -41,6 +41,12 @@ const [expandedSuppliers, setExpandedSuppliers] = useState<Record<string, boolea
   const [jobName, setJobName] = useState<string>('');
   const [phases, setPhases] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
+const [showSearch, setShowSearch] = useState(false);
+const [highlightedMaterial, setHighlightedMaterial] = useState<string | null>(null);
+const lastTapRef = useRef<Record<string, number>>({});
+const scrollRef = useRef<ScrollView>(null);
+const materialPositions = useRef<Record<string, number>>({});
 const [supplierMap, setSupplierMap] = useState<Record<string, any>>({});
 const [phasePickerOpen, setPhasePickerOpen] = useState(false);
 const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
@@ -56,6 +62,20 @@ const [orderPreviewOpen, setOrderPreviewOpen] = useState(false);
 const [pendingOrderItems, setPendingOrderItems] = useState<
   { materialId: string; qtyOrdered: number }[]
 >([]);
+
+function handleSupplierMaterialTap(materialId: string, supplierId: string) {
+  const now = Date.now();
+  const lastTap = lastTapRef.current[materialId] ?? 0;
+
+  if (now - lastTap < 250) {
+    setExpandedSuppliers(prev => ({
+      ...prev,
+      [supplierId]: false,
+    }));
+  }
+
+  lastTapRef.current[materialId] = now;
+}
 
 function isPhaseOrdered(material: any) {
   const needed = material.qty_needed ?? 0;
@@ -132,6 +152,21 @@ async function loadJob() {
   } catch (e) {
     console.log('Failed to load job name');
   }
+}
+
+function handleMaterialTap(materialId: string, phase: string) {
+  const now = Date.now();
+  const lastTap = lastTapRef.current[materialId] ?? 0;
+
+  if (now - lastTap < 250) {
+    // collapse entire phase bucket
+    setExpandedPhases(prev => ({
+      ...prev,
+      [phase]: false,
+    }));
+  }
+
+  lastTapRef.current[materialId] = now;
 }
 
 async function loadMaterials() {
@@ -470,9 +505,8 @@ async function updateQty(material: any, delta: number) {
 
   flushSyncQueue();
 }
-
-const holdIntervalRef = useRef<NodeJS.Timeout | null>(null);
-const holdDelayRef = useRef<NodeJS.Timeout | null>(null);
+const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+const holdDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 useEffect(() => {
   return () => {
@@ -855,7 +889,6 @@ return (
     marginBottom: 12,
   }}
 >
-
   {/* Edit Mode Button */}
   <Pressable
     onPress={() => {
@@ -869,23 +902,136 @@ return (
   </Pressable>
 
   {/* Add Button */}
-<Pressable
-  onPress={() => {
-    setEditMode(false);
-    setAddMode(v => !v);
-  }}
->
-<Text style={{ fontWeight: '700', color: '#16a34a' }}>
-  {addMode ? 'Cancel Add' : 'Add Items'}
-</Text>
+  <Pressable
+    onPress={() => {
+      setEditMode(false);
+      setAddMode(v => !v);
+    }}
+  >
+    <Text style={{ fontWeight: '700', color: '#16a34a' }}>
+      {addMode ? 'Cancel Add' : 'Add Items'}
+    </Text>
   </Pressable>
-
 </View>
 
-  <ScrollView
-      contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
-      showsVerticalScrollIndicator={false}
-      >
+{/* SEARCH */}
+<View style={{ marginBottom: 12, zIndex: 1000 }}>
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    <TextInput
+      placeholder="Search materials..."
+      value={searchQuery}
+      onChangeText={setSearchQuery}
+      returnKeyType="done"
+      onSubmitEditing={() => Keyboard.dismiss()}
+      style={{
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#d1d5db',
+        borderRadius: 10,
+        padding: 10,
+        backgroundColor: '#fff',
+      }}
+    />
+
+    <Pressable
+      onPress={() => {
+        Keyboard.dismiss();
+        setSearchQuery('');
+      }}
+      style={{ marginLeft: 8 }}
+    >
+      <Text style={{ fontWeight: '600', color: '#2563eb' }}>
+        Clear
+      </Text>
+    </Pressable>
+  </View>
+
+  {searchQuery.length > 0 && (
+    <View
+      style={{
+        position: 'absolute',
+        top: 50,
+        left: 0,
+        right: 0,
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        maxHeight: 250,
+        elevation: 10,
+      }}
+    >
+      <ScrollView keyboardShouldPersistTaps="handled">
+        {materials
+          .filter(m =>
+            (
+              m.item_name +
+              ' ' +
+              (m.item_code ?? '') +
+              ' ' +
+              (supplierMap[m.supplier_id]?.name ?? '')
+            )
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())
+          )
+          .slice(0, 20)
+          .map(m => (
+            <Pressable
+              key={m.id}
+              onPress={() => {
+                setSearchQuery('');
+                Keyboard.dismiss();
+
+                setExpandedPhases(prev => ({
+                  ...prev,
+                  [m.phase]: true,
+                }));
+
+                setHighlightedMaterial(m.id);
+
+                setTimeout(() => {
+                  const y = materialPositions.current[m.id];
+                  if (y != null && scrollRef.current) {
+                    scrollRef.current.scrollTo({
+                      y: y - 20,
+                      animated: true,
+                    });
+                  }
+                  setHighlightedMaterial(null);
+                }, 150);
+              }}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f3f4f6',
+              }}
+            >
+              <Text style={{ fontWeight: '700' }}>
+                {m.item_name}
+              </Text>
+
+              {m.item_code ? (
+                <Text style={{ fontSize: 13, opacity: 0.6 }}>
+                  ID: {m.item_code}
+                </Text>
+              ) : null}
+
+              <Text style={{ fontSize: 12, opacity: 0.6 }}>
+                {m.phase} • {supplierMap[m.supplier_id]?.name ?? '—'}
+              </Text>
+            </Pressable>
+          ))}
+      </ScrollView>
+    </View>
+  )}
+</View>
+
+<ScrollView
+  ref={scrollRef}
+  contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
+  showsVerticalScrollIndicator={false}
+>
 
 {/* SELECTORS */}
 <View style={styles.selectorBar}>
@@ -1188,26 +1334,32 @@ onPress={() => {
       </Text>
     </Pressable>
 
-    {/* Phase Materials */}
-    {expandedPhases[phase] &&
-      materialsByPhase[phase].map((material: any) => (
-<View
-  key={material.id}
-style={[
-  styles.card,
-
-  isPhaseOrdered(material) && {
-    backgroundColor: '#dcfce7', // stronger green
-  },
-
-  editMode &&
-  selectedMaterialIds.includes(material.id) && {
-    borderWidth: 2,
-    borderColor: '#2563eb'
-  }
-]}
->
-  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+{/* Phase Materials */}
+{expandedPhases[phase] &&
+  materialsByPhase[phase].map((material: any) => (
+    <Pressable
+      key={material.id}
+      onPress={() => handleMaterialTap(material.id, phase)}
+      onLayout={e => {
+        materialPositions.current[material.id] = e.nativeEvent.layout.y;
+      }}
+      style={[
+        styles.card,
+        highlightedMaterial === material.id && {
+          borderWidth: 2,
+          borderColor: '#2563eb',
+        },
+        isPhaseOrdered(material) && {
+          backgroundColor: '#dcfce7',
+        },
+        editMode &&
+        selectedMaterialIds.includes(material.id) && {
+          borderWidth: 2,
+          borderColor: '#2563eb',
+        },
+      ]}
+    >
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
     
 {/* LEFT SIDE */}
 <View style={{ flex: 1 }}>
@@ -1231,6 +1383,10 @@ style={[
   <Text style={styles.itemTitle}>
     {material.item_name}
   </Text>
+
+  <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
+  Double tap to collapse section
+</Text>
 
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
@@ -1424,21 +1580,19 @@ onPressOut={() => {
 }}
       >
         <Text style={{ color: '#dc2626', fontWeight: '700' }}>
-          − On-Hand
-        </Text>
-      </Pressable>
-    </View>
-  )}
-</View>
-</>
-);
-})()}
-
-</View>
-
-  </View>
-</View>
-      ))}
+                            − On-Hand
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
+    </Pressable>
+  ))}
   </View>
 ))}
 
@@ -1470,10 +1624,17 @@ onPressOut={() => {
     {expandedSuppliers.__internal && (
       <View style={{ marginTop: 10 }}>
         {internalMaterials.map((material: any) => (
-          <View
+  <View
   key={material.id}
-  style={[
-    styles.card,
+  onLayout={e => {
+    materialPositions.current[material.id] = e.nativeEvent.layout.y;
+  }}
+style={[
+  styles.card,
+  highlightedMaterial === material.id && {
+    borderWidth: 2,
+    borderColor: '#2563eb',
+  },
 isStorageOrdered(material) && {
   backgroundColor: '#dcfce7',
 }
@@ -1482,6 +1643,10 @@ isStorageOrdered(material) && {
             <Text style={styles.itemTitle}>
               {material.item_name}
             </Text>
+
+            <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
+  Double tap to collapse section
+</Text>
 
 {isStorageOrdered(material) && (
   <View style={{ marginTop: 4 }}>
@@ -1599,10 +1764,18 @@ Pulled From Storage: {
           {isExpanded && (
             <View style={{ marginTop: 10 }}>
               {supplierMaterials.map((material: any) => (
-                <View
+<Pressable
   key={material.id}
-  style={[
-    styles.card,
+  onPress={() => handleSupplierMaterialTap(material.id, supplierId)}
+  onLayout={e => {
+    materialPositions.current[material.id] = e.nativeEvent.layout.y;
+  }}
+style={[
+  styles.card,
+  highlightedMaterial === material.id && {
+    borderWidth: 2,
+    borderColor: '#2563eb',
+  },
 isPhaseOrdered(material) && {
   backgroundColor: '#dcfce7',
 }
@@ -1611,6 +1784,10 @@ isPhaseOrdered(material) && {
                   <Text style={styles.itemTitle}>
                     {material.item_name}
                   </Text>
+
+                  <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
+  Double tap to collapse section
+</Text>
 
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
@@ -1683,7 +1860,7 @@ await Linking.openURL(downloaded);
                   <Text style={styles.meta}>
                     On-Hand: {material.qty_on_hand_applied ?? 0}
                   </Text>
-                </View>
+                </Pressable>
               ))}
             </View>
           )}

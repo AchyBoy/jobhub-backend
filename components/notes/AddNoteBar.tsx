@@ -1,5 +1,12 @@
 //JobHub/components/notes/AddNoteBar.tsx
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+} from 'react-native';
 import { useState } from 'react';
 import { useRouter } from 'expo-router';
 
@@ -18,74 +25,90 @@ export default function AddNoteBar({
 }: Props) {
   const router = useRouter();
   const [text, setText] = useState('');
+  const [showDropdown, setShowDropdown] = useState(false);
+
   const noPhases = phases.length === 0;
-const noPhaseSelected = !phase;
-const disabled = noPhases || noPhaseSelected;
+  const noPhaseSelected = !phase;
+  const disabled = noPhases || noPhaseSelected;
 
-function submit() {
-  if (noPhases) {
-    router.push('/main/phases');
-    return;
+  function submit() {
+    if (noPhases) {
+      router.push('/main/phases');
+      return;
+    }
+
+    if (noPhaseSelected) return;
+    if (!text.trim()) return;
+
+    onAdd(text.trim());
+    setText('');
   }
-
-  if (noPhaseSelected) return;
-  if (!text.trim()) return;
-
-  onAdd(text.trim());
-  setText('');
-}
 
   return (
     <View style={styles.container}>
-      {/* Phase selector */}
-      <View style={styles.phaseRow}>
-        {phases.map(p => (
-          <Pressable
-            key={p}
-            onPress={() => onPhaseChange(p)}
-            style={[
-              styles.phaseButton,
-              phase === p && styles.phaseActive,
-            ]}
-          >
-            <Text
-              style={[
-                styles.phaseText,
-                phase === p && styles.phaseTextActive,
-              ]}
-            >
-              {p}
-            </Text>
-          </Pressable>
-        ))}
+      {/* PHASE DROPDOWN */}
+      <View style={{ marginBottom: 12 }}>
+        <Pressable
+          onPress={() => setShowDropdown(v => !v)}
+          style={styles.dropdownButton}
+        >
+          <Text style={styles.dropdownText}>
+            {noPhases
+              ? 'No Phases Configured'
+              : noPhaseSelected
+              ? 'Choose Phase'
+              : phase}
+          </Text>
+        </Pressable>
+
+        {showDropdown && (
+          <View style={styles.dropdownMenu}>
+            <ScrollView>
+              {phases.map(p => (
+                <Pressable
+                  key={p}
+                  onPress={() => {
+                    onPhaseChange(p);
+                    setShowDropdown(false);
+                  }}
+                  style={styles.dropdownItem}
+                >
+                  <Text style={{ fontWeight: phase === p ? '700' : '500' }}>
+                    {p}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </View>
+        )}
       </View>
 
-      {/* Input */}
+      {/* INPUT ROW */}
       <View style={styles.inputRow}>
         <TextInput
-          placeholder={`New ${phase} note`}
+          placeholder={`New ${phase || ''} note`}
           value={text}
           onChangeText={setText}
           style={styles.input}
         />
 
-<Pressable
-  style={[
-    styles.addBtn,
-    (noPhases || noPhaseSelected) && {
-      backgroundColor: noPhases ? '#dc2626' : '#9ca3af',
-    },
-  ]}
-  onPress={submit}
->
-  <Text style={styles.addText}>
-    {noPhases
-      ? 'No Phases – Check Settings'
-      : noPhaseSelected
-      ? 'Choose Phase'
-      : 'Add'}
-  </Text>
-</Pressable>
+        <Pressable
+          style={[
+            styles.addBtn,
+            disabled && {
+              backgroundColor: noPhases ? '#dc2626' : '#9ca3af',
+            },
+          ]}
+          onPress={submit}
+        >
+          <Text style={styles.addText}>
+            {noPhases
+              ? 'No Phases'
+              : noPhaseSelected
+              ? 'Choose'
+              : 'Add'}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -96,31 +119,33 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  phaseRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 10,
-  },
-
-  phaseButton: {
-    paddingVertical: 6,
+  dropdownButton: {
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    borderRadius: 10,
+    paddingVertical: 10,
     paddingHorizontal: 12,
-    borderRadius: 999,
-    backgroundColor: '#e5e7eb',
+    backgroundColor: '#fff',
   },
 
-  phaseActive: {
-    backgroundColor: '#2563eb',
-  },
-
-  phaseText: {
-    fontSize: 13,
+  dropdownText: {
     fontWeight: '600',
-    color: '#374151',
   },
 
-  phaseTextActive: {
-    color: '#fff',
+  dropdownMenu: {
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 10,
+    backgroundColor: '#fff',
+    maxHeight: 200,
+  },
+
+  dropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
   },
 
   inputRow: {

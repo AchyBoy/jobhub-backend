@@ -272,4 +272,44 @@ router.get("/job", async (req, res) => {
   }
 });
 
+// DELETE /api/job/:jobId
+router.delete("/job/:jobId", async (req, res) => {
+  const jobId = String(req.params.jobId || "").trim();
+  const user = (req as any).user;
+
+  if (!user?.tenantId) {
+    return res.status(403).json({ error: "Missing tenant context" });
+  }
+
+  // 🔐 ROLE CHECK
+  if (user.role !== "owner" && user.role !== "admin") {
+    return res.status(403).json({ error: "Insufficient permissions" });
+  }
+
+  if (!jobId) {
+    return res.status(400).json({ error: "Missing jobId" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      DELETE FROM jobs
+      WHERE id = $1
+        AND tenant_id = $2
+      RETURNING id
+      `,
+      [jobId, user.tenantId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Failed to delete job", err);
+    return res.status(500).json({ error: "Delete failed" });
+  }
+});
+
 export default router;

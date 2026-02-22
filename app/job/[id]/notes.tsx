@@ -1,9 +1,8 @@
 //JobHub/app/job/[id]/notes.tsx
 import { apiFetch } from '../../../src/lib/apiClient';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
-
 import * as Linking from 'expo-linking';
-
+import { Keyboard } from 'react-native';
 import {
   View,
   Text,
@@ -82,8 +81,17 @@ const id = idParam;
   const [notes, setNotes] = useState<JobNote[]>([]);
   const latestNotesRef = useRef<JobNote[]>([]);
   const noteSaveTimers = useRef<Record<string, any>>({});
-
+const [phasePickerForNote, setPhasePickerForNote] =
+  useState<string | null>(null);
+  const [searchFocused, setSearchFocused] = useState(false);
+const [highlightedNote, setHighlightedNote] = useState<string | null>(null);
   const [jobName, setJobName] = useState<string>('');
+  const scrollRef = useRef<ScrollView>(null);
+const notePositions = useRef<Record<string, number>>({});
+const lastTapRef = useRef<Record<string, number>>({});
+const [searchQuery, setSearchQuery] = useState('');
+const [showSearch, setShowSearch] = useState(false);
+const [showAddItem, setShowAddItem] = useState(false);
 
   // NOTE (future us):
   // Prevents accidental data loss on first load.
@@ -311,7 +319,6 @@ useEffect(() => {
 }, [id]);
 
 async function loadJob() {
-  if (!id) return;
 
 if (!id) return;
 const name = await fetchJobFromBackend(id);  if (name) {
@@ -461,6 +468,17 @@ function resetNoteForNewPhase(note: JobNote): JobNote {
   };
 }
 
+function handleNoteTap(noteId: string, phase: string) {
+  const now = Date.now();
+  const lastTap = lastTapRef.current[noteId] ?? 0;
+
+  if (now - lastTap < 250) {
+    setExpandedPhase(null); // collapse entire phase
+  }
+
+  lastTapRef.current[noteId] = now;
+}
+
 async function changeNotePhase(noteId: string, newPhase: string) {
 const updated: JobNote[] = notes.map(n => {
   if (n.id !== noteId) return n;
@@ -495,27 +513,151 @@ await syncNotesToBackend(id, updated);
 
 <Text style={styles.sub}>Job ID: {id}</Text>
 
-  <Pressable
-    onPress={() => setEditMode(v => !v)}
-    style={{ marginBottom: 16 }}
-  >
+<View
+  style={{
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  }}
+>
+  {/* LEFT — Edit Mode */}
+  <Pressable onPress={() => setEditMode(v => !v)}>
     <Text style={{ fontWeight: '700', color: '#2563eb' }}>
       {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
     </Text>
   </Pressable>
 
-<AddNoteBar
-  phases={allPhases}
-  phase={currentPhase}
-  onPhaseChange={setCurrentPhase}
-  onAdd={addNote}
-/>
+  {/* RIGHT — Add Item */}
+  <Pressable onPress={() => setShowAddItem(v => !v)}>
+    <Text style={{ fontWeight: '700', color: '#2563eb' }}>
+      {showAddItem ? 'Cancel Add' : 'Add Note'}
+    </Text>
+  </Pressable>
+</View>
 
-  <ScrollView
-    style={{ flex: 1 }}
-    contentContainerStyle={{ paddingBottom: 40 }}
-    showsVerticalScrollIndicator={false}
-  >
+{/* SEARCH */}
+<View style={{ marginBottom: 12, zIndex: 1000 }}>
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    <TextInput
+      placeholder="Search notes..."
+      value={searchQuery}
+      onChangeText={setSearchQuery}
+      returnKeyType="done"
+      onSubmitEditing={() => Keyboard.dismiss()}
+      style={{
+        flex: 1,
+        borderWidth: 1,
+        borderColor: '#d1d5db',
+        borderRadius: 10,
+        padding: 10,
+        backgroundColor: '#fff',
+      }}
+    />
+
+    <Pressable
+      onPress={() => {
+        Keyboard.dismiss();
+        setSearchFocused(false);
+      }}
+      style={{ marginLeft: 8 }}
+    >
+      <Text style={{ fontWeight: '600', color: '#2563eb' }}>
+        Done
+      </Text>
+    </Pressable>
+  </View>
+
+  {searchQuery.length > 0 && (
+    <View
+      style={{
+        position: 'absolute',
+        top: 50,
+        left: 0,
+        right: 0,
+        backgroundColor: '#fff',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+        maxHeight: 250,
+        elevation: 10,
+      }}
+    >
+      <ScrollView keyboardShouldPersistTaps="handled">
+        {notes
+          .filter(n =>
+            (n.noteA + ' ' + (n.noteB ?? ''))
+              .toLowerCase()
+              .includes(searchQuery.toLowerCase())
+          )
+          .slice(0, 20)
+          .map(n => (
+            <Pressable
+              key={n.id}
+              onPress={() => {
+                setExpandedPhase(n.phase);
+                setSearchQuery('');
+                Keyboard.dismiss();
+                setHighlightedNote(n.id);
+
+                setTimeout(() => {
+                  const y = notePositions.current[n.id];
+                  if (y != null && scrollRef.current) {
+                    scrollRef.current.scrollTo({
+                      y: y - 20,
+                      animated: true,
+                    });
+                  }
+                  setHighlightedNote(null);
+                }, 150);
+              }}
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 14,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f3f4f6',
+              }}
+            >
+              <Text style={{ fontWeight: '700' }}>
+                {n.noteA}
+              </Text>
+
+              {n.noteB ? (
+                <Text
+                  numberOfLines={1}
+                  style={{ fontSize: 13, opacity: 0.7 }}
+                >
+                  {n.noteB}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+      </ScrollView>
+    </View>
+  )}
+</View>
+
+{/* CONDITIONAL ADD NOTE BAR */}
+{showAddItem && (
+  <AddNoteBar
+    phases={allPhases}
+    phase={currentPhase}
+    onPhaseChange={setCurrentPhase}
+    onAdd={(text) => {
+      addNote(text);
+      setShowAddItem(false);
+      Keyboard.dismiss();
+    }}
+  />
+)}
+
+ <ScrollView
+  ref={scrollRef}
+  style={{ flex: 1 }}
+  contentContainerStyle={{ paddingBottom: 80 }}
+  showsVerticalScrollIndicator={false}
+  keyboardShouldPersistTaps="handled"
+>
 
     {/* PHASE ACCORDION */}
 {allPhases.map(phase => {
@@ -553,14 +695,20 @@ await syncNotesToBackend(id, updated);
         <View style={{ gap: 12 }}>
           {/* ACTIVE / CREW NOTES */}
           {activeNotes.map(note => (
-            <View
-              key={note.id}
-              style={[
-                styles.noteCard,
-                note.crewCompletedAt && {
-                  backgroundColor: '#dcfce7',
-                },
-              ]}
+<Pressable
+  key={note.id}
+  onPress={() => handleNoteTap(note.id, phase)}
+  onLayout={e => {
+    notePositions.current[note.id] = e.nativeEvent.layout.y;
+  }}
+  style={[
+    styles.noteCard,
+  note.crewCompletedAt && { backgroundColor: '#dcfce7' },
+  highlightedNote === note.id && {
+    borderWidth: 2,
+    borderColor: '#2563eb',
+  },
+]}
             >
 {/* NOTE A — primary instruction */}
 {editMode ? (
@@ -577,6 +725,10 @@ await syncNotesToBackend(id, updated);
     {note.noteA ?? note.text}
   </Text>
 )}
+
+<Text style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>
+  Double tap to collapse
+</Text>
 
 {/* NOTE B — clarification / context */}
 {editMode ? (
@@ -609,26 +761,44 @@ await syncNotesToBackend(id, updated);
 </View>
 
               {/* NOTE: office-only action to move an item to another phase */}
-<View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-  {allPhases
-    .filter(p => p !== note.phase)
-    .map(p => (
-      <Pressable
-        key={p}
-        onPress={() => changeNotePhase(note.id, p)}
-        style={{
-          paddingVertical: 6,
-          paddingHorizontal: 10,
-          borderRadius: 999,
-          backgroundColor: '#e5e7eb',
-        }}
-      >
-        <Text style={{ fontSize: 12, fontWeight: '600' }}>
-          Move to {p}
-        </Text>
-      </Pressable>
-    ))}
-</View>
+
+{editMode && (
+  <View style={{ marginTop: 10 }}>
+    <Pressable
+      onPress={() =>
+        setPhasePickerForNote(prev =>
+          prev === note.id ? null : note.id
+        )
+      }
+      style={styles.phaseButton}
+    >
+      <Text style={styles.phaseButtonText}>
+        Change Phase
+      </Text>
+    </Pressable>
+
+    {phasePickerForNote === note.id && (
+      <View style={styles.phaseDropdown}>
+        {allPhases
+          .filter(p => p !== note.phase)
+          .map(p => (
+            <Pressable
+              key={p}
+              onPress={() => {
+                changeNotePhase(note.id, p);
+                setPhasePickerForNote(null);
+              }}
+              style={styles.phaseOption}
+            >
+              <Text style={styles.phaseOptionText}>
+                {p}
+              </Text>
+            </Pressable>
+          ))}
+      </View>
+    )}
+  </View>
+)}
 
               {note.crewCompletedAt && (
                 <Text style={styles.meta}>
@@ -639,7 +809,8 @@ await syncNotesToBackend(id, updated);
                 </Text>
               )}
 
-              {!note.markedCompleteBy && (
+              {editMode && !note.markedCompleteBy && (
+
                 <Pressable
                   style={styles.action}
                   onPress={() =>
@@ -652,15 +823,17 @@ await syncNotesToBackend(id, updated);
                 </Pressable>
               )}
 
-              <Pressable
-                style={[styles.action, { marginTop: 6 }]}
-                onPress={() => markOfficeComplete(note.id)}
-              >
-                <Text style={styles.actionText}>
-                  Office mark complete
-                </Text>
-              </Pressable>
-            </View>
+{editMode && (
+  <Pressable
+    style={[styles.action, { marginTop: 6 }]}
+    onPress={() => markOfficeComplete(note.id)}
+  >
+    <Text style={styles.actionText}>
+      Office mark complete
+    </Text>
+  </Pressable>
+)}
+            </Pressable>
           ))}
 
 {/* OFFICE COMPLETED ACCORDION */}
@@ -682,9 +855,13 @@ await syncNotesToBackend(id, updated);
 
       {showCompletedByPhase[phase] &&
         officeCompleted.map(note => (
-          <View
-            key={note.id}
-            style={[
+<Pressable
+  key={note.id}
+  onPress={() => handleNoteTap(note.id, phase)}
+  onLayout={e => {
+    notePositions.current[note.id] = e.nativeEvent.layout.y;
+  }}
+  style={[
               styles.noteCard,
               { opacity: 0.6 },
             ]}
@@ -704,6 +881,10 @@ await syncNotesToBackend(id, updated);
                 {note.noteA ?? note.text}
               </Text>
             )}
+
+            <Text style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>
+  Double tap to collapse
+</Text>
 
             {/* NOTE B — clarification / context */}
             {editMode ? (
@@ -742,17 +923,19 @@ await syncNotesToBackend(id, updated);
               </Text>
             )}
 
-            <Pressable
-              style={styles.action}
-              onPress={() =>
-                markOfficeIncomplete(note.id)
-              }
-            >
-              <Text style={styles.actionText}>
-                Mark incomplete
-              </Text>
-            </Pressable>
-          </View>
+{editMode && (
+  <Pressable
+    style={styles.action}
+    onPress={() =>
+      markOfficeIncomplete(note.id)
+    }
+  >
+    <Text style={styles.actionText}>
+      Mark incomplete
+    </Text>
+  </Pressable>
+)}
+          </Pressable>
         ))}
     </>
   )}
@@ -804,11 +987,12 @@ sub: {
     marginBottom: 6,
   },
 
-  noteCard: {
-    padding: 16,
-    borderRadius: 14,
-    backgroundColor: '#f3f4f6',
-  },
+noteCard: {
+  paddingVertical: 4,
+  paddingHorizontal: 6,
+  borderRadius: 12,
+  backgroundColor: '#f3f4f6',
+},
 
   noteHeader: {
     flexDirection: 'row',
@@ -866,6 +1050,40 @@ autosaveSlot: {
     marginTop: 10,
     alignItems: 'flex-end',
   },
+
+  phaseButton: {
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  borderRadius: 999,
+  backgroundColor: '#e5e7eb',
+  alignSelf: 'flex-start',
+},
+
+phaseButtonText: {
+  fontSize: 12,
+  fontWeight: '600',
+},
+
+phaseDropdown: {
+  marginTop: 8,
+  borderRadius: 10,
+  backgroundColor: '#ffffff',
+  borderWidth: 1,
+  borderColor: '#e5e7eb',
+  overflow: 'hidden',
+},
+
+phaseOption: {
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: '#f3f4f6',
+},
+
+phaseOptionText: {
+  fontSize: 13,
+  fontWeight: '500',
+},
 
   actionText: {
     fontSize: 13,
