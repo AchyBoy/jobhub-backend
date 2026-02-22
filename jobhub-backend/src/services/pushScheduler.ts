@@ -26,7 +26,8 @@ function formatLocalTime(dateString: string) {
 async function sendPushToTenant(
   tenantId: string,
   title: string,
-  body: string
+  body: string,
+  taskId: string
 ) {
   console.log("🔎 sendPushToTenant called for tenant:", tenantId);
 
@@ -46,12 +47,16 @@ async function sendPushToTenant(
     return;
   }
 
-  const messages = tokenResult.rows.map((row) => ({
-    to: row.expo_push_token,
-    sound: "default",
-    title,
-    body,
-  }));
+const messages = tokenResult.rows.map((row) => ({
+  to: row.expo_push_token,
+  sound: "default",
+  title,
+  body,
+  data: {
+    screen: "schedule",
+    taskId,
+  },
+}));
 
   console.log("📤 Sending push to Expo:", JSON.stringify(messages, null, 2));
 
@@ -73,22 +78,29 @@ async function processThreeDayNotifications() {
     `
     SELECT *
     FROM scheduled_tasks
-    WHERE
-      status = 'scheduled'
-      AND three_day_notified_at IS NULL
-      AND scheduled_at > NOW()
-      AND scheduled_at <= NOW() + INTERVAL '3 days'
+WHERE
+  status = 'scheduled'
+  AND three_day_notified_at IS NULL
+  AND one_hour_notified_at IS NULL
+  AND scheduled_at > NOW() + INTERVAL '1 hour'
+  AND scheduled_at <= NOW() + INTERVAL '3 days'
     `
   );
 
   for (const task of result.rows as ScheduledTask[]) {
+    console.log("🔥 THREE DAY FIRING FOR", task.id);
     const timeFormatted = formatLocalTime(task.scheduled_at);
 
     const body = `${task.job_name ?? task.id} - ${task.phase} - ${
       task.crew_name ?? "Crew"
     } - ${timeFormatted}`;
 
-    await sendPushToTenant(task.tenant_id, "Upcoming Task", body);
+    await sendPushToTenant(
+  task.tenant_id,
+  "Upcoming Task",
+  body,
+  task.id
+);
 
     await pool.query(
       `
@@ -102,6 +114,7 @@ async function processThreeDayNotifications() {
 }
 
 async function processOneHourNotifications() {
+  
   const result = await pool.query(
     `
     SELECT *
@@ -115,13 +128,19 @@ async function processOneHourNotifications() {
   );
 
   for (const task of result.rows as ScheduledTask[]) {
+    console.log("🔥 ONE HOUR FIRING FOR", task.id);
     const timeFormatted = formatLocalTime(task.scheduled_at);
 
     const body = `${task.job_name ?? task.id} - ${task.phase} - ${
       task.crew_name ?? "Crew"
     } - ${timeFormatted}`;
 
-    await sendPushToTenant(task.tenant_id, "Upcoming Task", body);
+    await sendPushToTenant(
+  task.tenant_id,
+  "Upcoming Task",
+  body,
+  task.id
+);
 
     await pool.query(
       `
@@ -137,13 +156,53 @@ async function processOneHourNotifications() {
 export function startPushScheduler() {
   console.log("📣 Push scheduler started");
 
+  // Prevent overlap inside a single Node process
+  let running = false;
+
+  // Global lock across ALL backend instances (local + Railway + anything)
+  const LOCK_KEY = 424242; // any constant int is fine
+
   setInterval(async () => {
-  console.log("⏱ Scheduler tick", new Date().toISOString());
+    if (running) return;
+    running = true;
+
+    const tick = new Date().toISOString();
+    console.log("⏱ Scheduler tick", tick);
+
+    let locked = false;
+
     try {
+      // Try to become the leader
+      const lockRes = await pool.query(
+        `SELECT pg_try_advisory_lock($1) AS locked`,
+        [LOCK_KEY]
+      );
+
+      locked = lockRes.rows?.[0]?.locked === true;
+
+      if (!locked) {
+        console.log("🔒 Scheduler skipped (another instance is leader)");
+        return;
+      }
+
+      console.log("🔓 Scheduler leader acquired");
+
       await processThreeDayNotifications();
       await processOneHourNotifications();
     } catch (err) {
       console.error("Push scheduler error:", err);
+    } finally {
+      // Release leadership lock if we had it
+      if (locked) {
+        try {
+          await pool.query(`SELECT pg_advisory_unlock($1)`, [LOCK_KEY]);
+          console.log("🔐 Scheduler leader released");
+        } catch (e) {
+          console.warn("⚠️ Failed to release advisory lock", e);
+        }
+      }
+
+      running = false;
     }
   }, 60_000);
 }

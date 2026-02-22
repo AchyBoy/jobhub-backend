@@ -4,13 +4,17 @@ import * as Device from "expo-device";
 import Constants from "expo-constants";
 
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    // If app is foregrounded, do NOT show banner.
+    // Let iOS handle background presentation only.
+    return {
+      shouldShowAlert: false,
+      shouldShowBanner: false,
+      shouldShowList: false,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 export async function registerForPushNotifications() {

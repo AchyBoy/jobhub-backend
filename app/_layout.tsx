@@ -6,6 +6,7 @@ import { apiFetch } from '../src/lib/apiClient';
 import { Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
+import * as Notifications from "expo-notifications";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
@@ -40,6 +41,28 @@ return () => {
 mounted = false;
     };
   }, []);
+
+useEffect(() => {
+  const subscription =
+    Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        const data = response.notification.request.content.data;
+
+        if (
+          data &&
+          data.screen === "schedule" &&
+          typeof data.taskId === "string"
+        ) {
+          router.push({
+            pathname: "/main/schedule",
+            params: { taskId: data.taskId },
+          });
+        }
+      }
+    );
+
+  return () => subscription.remove();
+}, []);
   
 // 1.5️⃣ Ensure tenant exists and password state is valid
 useEffect(() => {

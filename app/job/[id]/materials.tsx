@@ -395,7 +395,11 @@ function updateQtyLocal(materialId: string, delta: number) {
       const current = m.qty_needed ?? 0;
       const newQty = Math.max(0, current + delta);
 
-      return { ...m, qty_needed: newQty };
+      return {
+  ...m,
+  qty_needed: newQty,
+  updated_at: new Date().toISOString(),
+};
     });
 
     // Immediately persist local copy for offline-first feel
@@ -516,7 +520,11 @@ async function setQtyDirect(material: any, newQty: number) {
 
   const updated = materials.map(m =>
     m.id === material.id
-      ? { ...m, qty_needed: safeQty }
+      ? {
+    ...m,
+    qty_needed: safeQty,
+    updated_at: new Date().toISOString(),
+  }
       : m
   );
 

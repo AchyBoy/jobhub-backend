@@ -15,7 +15,8 @@ import { Keyboard } from 'react-native';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
-import { Stack } from 'expo-router';
+import { Stack, useLocalSearchParams } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 
@@ -27,6 +28,11 @@ const [phases, setPhases] = useState<string[]>([]);
 const [viewMode, setViewMode] = useState<'calendar' | 'list'>('calendar');
 const [currentMonth, setCurrentMonth] = useState(new Date());
 const scrollRef = useRef<ScrollView>(null);
+const { taskId } = useLocalSearchParams<{ taskId?: string }>();
+const router = useRouter();
+const taskYPositionsRef = useRef<Record<string, number>>({});
+const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
+const [pendingScrollTaskId, setPendingScrollTaskId] = useState<string | null>(null);
 const [selectedDate, setSelectedDate] = useState<string | null>(null);
 const [expandedId, setExpandedId] = useState<string | null>(null);
 const [isCreating, setIsCreating] = useState(false);
@@ -85,6 +91,34 @@ useEffect(() => {
   loadScheduledTasks();
   loadDirectories();
 }, []);
+
+useEffect(() => {
+  if (typeof taskId !== 'string' || !taskId) return;
+
+  // List view always renders all tasks, so it’s safest for deep-linking
+  setViewMode('list');
+
+  // Expand the card
+  setExpandedId(taskId);
+
+  // Request a scroll after layout happens
+  setPendingScrollTaskId(taskId);
+
+  // Visual highlight
+  setHighlightTaskId(taskId);
+  const t = setTimeout(() => setHighlightTaskId(null), 2500);
+  return () => clearTimeout(t);
+}, [taskId]);
+
+useEffect(() => {
+  if (!pendingScrollTaskId) return;
+
+  const y = taskYPositionsRef.current[pendingScrollTaskId];
+  if (typeof y !== 'number') return;
+
+  scrollRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true });
+  setPendingScrollTaskId(null);
+}, [pendingScrollTaskId, scheduledTasks, viewMode]);
 
 async function sendScheduleEmail(task: any) {
 const crew = crews.find(c => c.id === task.crew_id);
@@ -145,8 +179,6 @@ ${scheduleText}`
 
   // Open native mail app
 console.log('📧 Opening URL:', url);
-
-await Linking.openURL(url);
 
 await Linking.openURL(url);
 
@@ -1300,6 +1332,27 @@ onLongPress={() => {
 <View style={{ marginTop: 12 }}>
   <Pressable
     onPress={(e) => {
+      e.stopPropagation();
+      if (!task.job_id) return;
+
+router.push({
+  pathname: '/job/[id]',
+  params: {
+    id: task.job_id,
+    name: task.job_name ?? '',
+  },
+});
+    }}
+  >
+    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+      Go To Job
+    </Text>
+  </Pressable>
+</View>
+
+<View style={{ marginTop: 12 }}>
+  <Pressable
+    onPress={(e) => {
       e.stopPropagation(); // prevent parent Pressable toggle
       console.log('🔥 SEND PRESSED');
       sendScheduleEmail(task);
@@ -1335,34 +1388,63 @@ onLongPress={() => {
 )}
 
       {/* LIST VIEW */}
-      {viewMode === 'list' &&
+{viewMode === 'list' &&
   [...filteredTasks]
-          .sort((a, b) =>
-            (a.job_name ?? '').localeCompare(
-              b.job_name ?? ''
-            )
-          )
-          .map(task => (
-            <View key={task.id} style={styles.card}>
-              <Text style={styles.job}>
-                {task.job_name ?? task.job_id}
-              </Text>
+    .sort((a, b) =>
+      (a.job_name ?? '').localeCompare((b.job_name ?? ''))
+    )
+    .map(task => (
+      <View
+        key={task.id}
+        onLayout={(e) => {
+          taskYPositionsRef.current[task.id] = e.nativeEvent.layout.y;
+        }}
+        style={[
+          styles.card,
+          highlightTaskId === task.id && {
+            borderWidth: 2,
+            borderColor: '#2563eb',
+            backgroundColor: '#eff6ff',
+          },
+        ]}
+      >
+        <Text style={styles.job}>
+          {task.job_name ?? task.job_id}
+        </Text>
 
-              <Text style={styles.meta}>
-                Crew: {task.crew_name ?? task.crew_id}
-              </Text>
+        <Text style={styles.meta}>
+          Crew: {task.crew_name ?? task.crew_id}
+        </Text>
 
-              <Text style={styles.meta}>
-                Phase: {task.phase}
-              </Text>
+        <Text style={styles.meta}>
+          Phase: {task.phase}
+        </Text>
 
-              <Text style={styles.date}>
-                {new Date(
-                  task.scheduled_at
-                ).toLocaleString()}
-              </Text>
-            </View>
-          ))}
+        <Text style={styles.date}>
+          {new Date(task.scheduled_at).toLocaleString()}
+        </Text>
+
+        <View style={{ marginTop: 8 }}>
+  <Pressable
+    onPress={() => {
+      if (!task.job_id) return;
+
+router.push({
+  pathname: '/job/[id]',
+  params: {
+    id: task.job_id,
+    name: task.job_name ?? '',
+  },
+});
+    }}
+  >
+    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+      Go To Job
+    </Text>
+  </Pressable>
+</View>
+      </View>
+    ))}
     </View>
     </ScrollView>
   </View>
