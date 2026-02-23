@@ -10,11 +10,18 @@ router.use(requireAuthWithTenant);
 // ======================================
 // GET /api/jobs/:jobId/supervisors
 // ======================================
-router.get("/:jobId", async (req: any, res) => {
+router.get("/:jobId/supervisors", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
   const jobId = String(req.params.jobId || "").trim();
 
+  console.log("🔎 GET /api/jobs/:jobId/supervisors called", {
+    jobId,
+    tenantId,
+    user: req.user,
+  });
+
   if (!tenantId || !jobId) {
+    console.log("❌ Missing context in GET supervisors");
     return res.status(400).json({ error: "Missing context" });
   }
 
@@ -36,6 +43,8 @@ router.get("/:jobId", async (req: any, res) => {
       [jobId, tenantId]
     );
 
+    console.log("📦 Supervisors returned:", result.rows);
+
     res.json({ assignments: result.rows });
   } catch (err) {
     console.error("❌ Failed to load job supervisors", err);
@@ -43,10 +52,7 @@ router.get("/:jobId", async (req: any, res) => {
   }
 });
 
-// ======================================
-// POST /api/jobs/:jobId/supervisors
-// ======================================
-router.post("/:jobId", async (req: any, res) => {
+router.post("/:jobId/supervisor", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
   const jobId = String(req.params.jobId || "").trim();
   const { supervisorId } = req.body || {};
@@ -55,10 +61,13 @@ router.post("/:jobId", async (req: any, res) => {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  const id = Date.now().toString();
+  const client = await pool.connect();
 
   try {
-    await pool.query(
+    await client.query("BEGIN");
+
+    // 1️⃣ Insert assignment (no delete — multiple supervisors allowed)
+    await client.query(
       `
       INSERT INTO job_supervisors
         (id, tenant_id, supervisor_id, job_id)
@@ -66,20 +75,121 @@ router.post("/:jobId", async (req: any, res) => {
       ON CONFLICT (supervisor_id, job_id, tenant_id)
       DO NOTHING
       `,
-      [id, tenantId, supervisorId, jobId]
+      [Date.now().toString(), tenantId, supervisorId, jobId]
     );
+
+    // 2️⃣ Fetch supervisor template notes
+    const templateResult = await client.query(
+      `
+      SELECT phase, note_a, note_b
+      FROM supervisor_phase_notes
+      WHERE supervisor_id = $1
+        AND tenant_id = $2
+      `,
+      [supervisorId, tenantId]
+    );
+
+    // 3️⃣ Fetch active phases
+    const phasesResult = await client.query(
+      `
+      SELECT name
+      FROM phases
+      WHERE tenant_id = $1
+        AND active = true
+      `,
+      [tenantId]
+    );
+
+    const activePhases = new Set(
+      phasesResult.rows.map((p: any) => p.name)
+    );
+
+    // 4️⃣ Inject notes (duplicate-safe)
+    for (const t of templateResult.rows) {
+      const phase = t.phase;
+      const noteA = t.note_a;
+      const noteB = t.note_b ?? null;
+
+      // Duplicate guard
+      const exists = await client.query(
+        `
+        SELECT 1
+        FROM notes
+        WHERE job_id = $1
+          AND tenant_id = $2
+          AND source_type = 'supervisor'
+          AND source_id = $3
+          AND phase = $4
+          AND note_a = $5
+        LIMIT 1
+        `,
+        [jobId, tenantId, supervisorId, phase, noteA]
+      );
+
+      if (exists.rowCount > 0) continue;
+
+      const status = activePhases.has(phase)
+        ? "incomplete"
+        : "blank";
+
+      await client.query(
+        `
+        INSERT INTO notes (
+          id,
+          job_id,
+          tenant_id,
+          phase,
+          note_a,
+          note_b,
+          text,
+          status,
+          created_at,
+          source_type,
+          source_id
+        )
+        VALUES (
+          gen_random_uuid()::text,
+          $1,
+          $2,
+          $3,
+          $4,
+          $5,
+          $4,
+          $6,
+          now(),
+          'supervisor',
+          $7
+        )
+        `,
+        [
+          jobId,
+          tenantId,
+          phase,
+          noteA,
+          noteB,
+          status,
+          supervisorId
+        ]
+      );
+    }
+
+    await client.query("COMMIT");
 
     res.json({ success: true });
   } catch (err) {
-    console.error("❌ Failed to assign supervisor", err);
+    await client.query("ROLLBACK");
+    console.error("❌ Failed to assign supervisor with injection", err);
     res.status(500).json({ error: "Failed to assign supervisor" });
+  } finally {
+    client.release();
   }
+  
 });
 
 // ======================================
 // DELETE /api/jobs/:jobId/supervisors/:assignmentId
 // ======================================
-router.delete("/:jobId/:assignmentId", async (req: any, res) => {
+router.delete("/:jobId/supervisors/:assignmentId", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
   const { jobId, assignmentId } = req.params;
 

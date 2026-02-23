@@ -30,17 +30,6 @@ const jobName =
     ? name
     : 'Job';
 
-useFocusEffect(
-  useCallback(() => {
-    if (!id) return;
-
-    loadCrews();
-    loadPhases();
-    loadAssignments();
-    loadDefaults();
-  }, [id])
-);
-
 async function loadCrews() {
   const local = await AsyncStorage.getItem('crews_v1');
   if (local) setCrews(JSON.parse(local));
@@ -57,15 +46,74 @@ async function loadDefaults() {
 
   // 1️⃣ Load local first (instant UI)
   const local = await AsyncStorage.getItem(storageKey);
-  if (local) {
-    const parsed = JSON.parse(local);
+if (local) {
+  const parsed = JSON.parse(local);
 
-    setJobSupervisors(parsed.supervisors ?? []);
-    setJobContractor(parsed.contractor ?? null);
-    setJobVendor(parsed.vendor ?? null);
-    setJobPermitCompany(parsed.permitCompany ?? null);
-    setJobInspectionCompany(parsed.inspection ?? null);
-  }
+  const cachedSupervisors =
+    JSON.parse(
+      (await AsyncStorage.getItem('supervisors_v1')) ?? '[]'
+    ) ?? [];
+
+  const cachedContractors =
+    JSON.parse(
+      (await AsyncStorage.getItem('contractors_v1')) ?? '[]'
+    ) ?? [];
+
+  const cachedVendors =
+    JSON.parse(
+      (await AsyncStorage.getItem('vendors_v1')) ?? '[]'
+    ) ?? [];
+
+  const cachedPermitCompanies =
+    JSON.parse(
+      (await AsyncStorage.getItem('permit_companies_v1')) ?? '[]'
+    ) ?? [];
+
+  const cachedInspectionCompanies =
+    JSON.parse(
+      (await AsyncStorage.getItem('inspections_v1')) ?? '[]'
+    ) ?? [];
+
+  setJobSupervisors(
+    (parsed.supervisors ?? [])
+      .map((id: string) =>
+        cachedSupervisors.find((s: any) => s.id === id)
+      )
+      .filter(Boolean)
+  );
+
+  setJobContractor(
+    parsed.contractor
+      ? cachedContractors.find(
+          (c: any) => c.id === parsed.contractor.id
+        ) ?? null
+      : null
+  );
+
+  setJobVendor(
+    parsed.vendor
+      ? cachedVendors.find(
+          (v: any) => v.id === parsed.vendor.id
+        ) ?? null
+      : null
+  );
+
+  setJobPermitCompany(
+    parsed.permitCompany
+      ? cachedPermitCompanies.find(
+          (p: any) => p.id === parsed.permitCompany.id
+        ) ?? null
+      : null
+  );
+
+  setJobInspectionCompany(
+    parsed.inspection
+      ? cachedInspectionCompanies.find(
+          (i: any) => i.id === parsed.inspection.id
+        ) ?? null
+      : null
+  );
+}
 
   // 2️⃣ Attempt API refresh
   try {
@@ -83,24 +131,54 @@ async function loadDefaults() {
       apiFetch(`/api/jobs/${id}/inspection`),
     ]);
 
-    const updated = {
-      supervisors: supRes.supervisors ?? [],
-      contractor: conRes.contractor ?? null,
-      vendor: venRes.vendor ?? null,
-      permitCompany: permitRes.permitCompany ?? null,
-      inspection: inspectionRes.inspection ?? null,
-    };
+const updated = {
+  supervisors:
+    (supRes.assignments ?? []).map(
+      (a: any) => String(a.supervisorId)
+    ),
 
-    setJobSupervisors(updated.supervisors);
+  contractor: conRes.contractor ?? null,
+  vendor: venRes.vendor ?? null,
+  permitCompany: permitRes.permitCompany ?? null,
+  inspection: inspectionRes.inspection ?? null,
+};
+
+const cachedSupervisors =
+  JSON.parse(
+    (await AsyncStorage.getItem('supervisors_v1')) ?? '[]'
+  ) ?? [];
+
+const hydratedSupervisors =
+  updated.supervisors
+    .map((id: string) =>
+      cachedSupervisors.find((s: any) => s.id === id)
+    )
+    .filter(Boolean);
+
+setJobSupervisors(hydratedSupervisors);
     setJobContractor(updated.contractor);
     setJobVendor(updated.vendor);
     setJobPermitCompany(updated.permitCompany);
     setJobInspectionCompany(updated.inspection);
 
-    await AsyncStorage.setItem(
-      storageKey,
-      JSON.stringify(updated)
-    );
+await AsyncStorage.setItem(
+  storageKey,
+  JSON.stringify({
+    supervisors: updated.supervisors,
+contractor: updated.contractor
+  ? { id: updated.contractor.contractorId }
+  : null,
+    vendor: updated.vendor
+      ? { id: updated.vendor.id }
+      : null,
+    permitCompany: updated.permitCompany
+      ? { id: updated.permitCompany.id }
+      : null,
+    inspection: updated.inspection
+      ? { id: updated.inspection.id }
+      : null,
+  })
+);
 
   } catch {
     // silent fail — offline mode
@@ -163,6 +241,21 @@ async function assignCrew(crewId: string, phase: string) {
   // attempt immediately (and loop will keep retrying if it fails)
   await flushSyncQueue();
 }
+
+useFocusEffect(
+  useCallback(() => {
+    if (!id) return;
+
+    loadCrews();
+    loadPhases();
+    loadAssignments();
+
+    (async () => {
+      await loadDefaults();
+    })();
+
+  }, [id])
+);
 
   return (
 

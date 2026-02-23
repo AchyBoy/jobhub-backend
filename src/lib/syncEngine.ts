@@ -70,6 +70,29 @@ type SyncItem =
       createdAt: string;
       payload: { jobId: string; contractorId: string };
     }
+
+    | {
+    id: string;
+    type: 'job_contractor_remove';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { jobId: string };
+  }
+| {
+    id: string;
+    type: 'job_supervisor_add';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { jobId: string; supervisorId: string };
+  }
+| {
+    id: string;
+    type: 'job_supervisor_remove';
+    coalesceKey: string;
+    createdAt: string;
+    payload: { jobId: string; supervisorId: string };
+  }
+
   | {
       id: string;
       type: 'job_vendor_set';
@@ -79,17 +102,39 @@ type SyncItem =
     }
   | {
       id: string;
+      type: 'job_vendor_remove';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string };
+    }
+  | {
+      id: string;
       type: 'job_permit_company_set';
       coalesceKey: string;
       createdAt: string;
       payload: { jobId: string; permitCompanyId: string };
     }
+      | {
+      id: string;
+      type: 'job_permit_company_remove';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string };
+    }
+
   | {
       id: string;
       type: 'job_inspection_set';
       coalesceKey: string;
       createdAt: string;
       payload: { jobId: string; inspectionId: string };
+    }
+      | {
+      id: string;
+      type: 'job_inspection_remove';
+      coalesceKey: string;
+      createdAt: string;
+      payload: { jobId: string };
     }
   | {
       id: string;
@@ -98,6 +143,28 @@ type SyncItem =
       createdAt: string;
       payload: { id: string; name: string; contacts: any[] };
     }
+
+| {
+    id: string;
+    type: 'contractor_phase_notes_sync';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      contractorId: string;
+      notes: any[];
+    };
+  }
+| {
+    id: string;
+    type: 'supervisor_phase_notes_sync';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      supervisorId: string;
+      notes: any[];
+    };
+  }
+
   | {
       id: string;
       type: 'supervisor_upsert';
@@ -290,6 +357,31 @@ export async function flushSyncQueue() {
         });
       }
 
+      if (item.type === 'job_supervisor_add') {
+  const { jobId, supervisorId } = item.payload;
+
+  await apiFetch(`/api/jobs/${jobId}/supervisor`, {
+    method: 'POST',
+    body: JSON.stringify({ supervisorId }),
+  });
+}
+
+if (item.type === 'job_supervisor_remove') {
+  const { jobId, supervisorId } = item.payload;
+
+  const res = await apiFetch(`/api/jobs/${jobId}/supervisors`);
+  const assignment = res.assignments?.find(
+    (a: any) => a.supervisorId === supervisorId
+  );
+
+  if (assignment?.id) {
+await apiFetch(
+  `/api/jobs/${jobId}/supervisors/${assignment.id}`,
+  { method: 'DELETE' }
+);
+  }
+}
+
       if (item.type === 'inspection_upsert') {
   await apiFetch('/api/inspections', {
     method: 'POST',
@@ -305,6 +397,14 @@ export async function flushSyncQueue() {
         });
       }
 
+      if (item.type === 'job_contractor_remove') {
+  const { jobId } = item.payload;
+
+  await apiFetch(`/api/jobs/${jobId}/contractor`, {
+    method: 'DELETE',
+  });
+}
+
       if (item.type === 'contractor_upsert') {
   await apiFetch('/api/contractors', {
     method: 'POST',
@@ -312,11 +412,43 @@ export async function flushSyncQueue() {
   });
 }
 
+if (item.type === 'contractor_phase_notes_sync') {
+  const { contractorId, notes } = item.payload;
+
+  await apiFetch(
+    `/api/contractor-phase-notes/${contractorId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    }
+  );
+}
+
+if (item.type === 'supervisor_phase_notes_sync') {
+  const { supervisorId, notes } = item.payload;
+
+  await apiFetch(
+    `/api/supervisor-phase-notes/${supervisorId}`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+    }
+  );
+}
+
       if (item.type === 'job_vendor_set') {
         const { jobId, vendorId } = item.payload;
         await apiFetch(`/api/jobs/${jobId}/vendor`, {
           method: 'POST',
           body: JSON.stringify({ vendorId }),
+        });
+      }
+
+            if (item.type === 'job_vendor_remove') {
+        const { jobId } = item.payload;
+
+        await apiFetch(`/api/jobs/${jobId}/vendor`, {
+          method: 'DELETE',
         });
       }
 
@@ -328,11 +460,27 @@ export async function flushSyncQueue() {
         });
       }
 
+            if (item.type === 'job_permit_company_remove') {
+        const { jobId } = item.payload;
+
+        await apiFetch(`/api/jobs/${jobId}/permit-company`, {
+          method: 'DELETE',
+        });
+      }
+
       if (item.type === 'job_inspection_set') {
         const { jobId, inspectionId } = item.payload;
         await apiFetch(`/api/jobs/${jobId}/inspection`, {
           method: 'POST',
           body: JSON.stringify({ inspectionId }),
+        });
+      }
+
+            if (item.type === 'job_inspection_remove') {
+        const { jobId } = item.payload;
+
+        await apiFetch(`/api/jobs/${jobId}/inspection`, {
+          method: 'DELETE',
         });
       }
 

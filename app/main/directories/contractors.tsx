@@ -37,9 +37,10 @@ export default function ContractorsScreen() {
   const [saveState, setSaveState] =
     useState<Record<string, 'saving' | 'saved'>>({});
 
-  useEffect(() => {
-    load();
-  }, []);
+useEffect(() => {
+  load();
+  loadPhases();
+}, []);
 
   async function load() {
     try {
@@ -64,6 +65,70 @@ export default function ContractorsScreen() {
       console.warn('Using cached contractors');
     }
   }
+
+  // ==============================
+// Contractor Phase Template Notes
+// ==============================
+
+type TemplateNote = {
+  id: string;
+  phase: string;
+  noteA: string;
+  noteB?: string;
+  createdAt: string;
+};
+
+const [templateNotes, setTemplateNotes] =
+  useState<Record<string, TemplateNote[]>>({});
+
+const [showAddTemplateFor, setShowAddTemplateFor] =
+  useState<string | null>(null);
+
+const [newTemplatePhase, setNewTemplatePhase] =
+  useState<string>('Rough');
+
+  const [phases, setPhases] = useState<string[]>([]);
+const [showPhasePicker, setShowPhasePicker] =
+  useState<string | null>(null);
+
+const [newTemplateNoteA, setNewTemplateNoteA] =
+  useState<string>('');
+
+const [newTemplateNoteB, setNewTemplateNoteB] =
+  useState<string>('');
+
+  async function loadPhases() {
+  try {
+    const cached = await AsyncStorage.getItem('phases');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        setPhases(parsed);
+        if (!newTemplatePhase && parsed.length) {
+          setNewTemplatePhase(parsed[0]);
+        }
+      }
+    }
+
+    const res = await apiFetch('/api/phases');
+    const remote =
+      res?.phases?.map((p: any) => p.name) ?? [];
+
+    if (remote.length) {
+      setPhases(remote);
+      await AsyncStorage.setItem(
+        'phases',
+        JSON.stringify(remote)
+      );
+
+      if (!newTemplatePhase) {
+        setNewTemplatePhase(remote[0]);
+      }
+    }
+  } catch {
+    // offline safe
+  }
+}
 
 async function addContractor() {
   if (!newName.trim()) return;
@@ -237,6 +302,117 @@ flushSyncQueue();
     );
   }
 
+  // ======================================
+// Template Notes (for later injection)
+// ======================================
+
+function getTemplateKey(contractorId: string) {
+  return `contractor:${contractorId}:phase_templates_v1`;
+}
+
+async function loadTemplateNotes(contractorId: string) {
+  const cached = await AsyncStorage.getItem(
+    getTemplateKey(contractorId)
+  );
+
+  if (cached) {
+    setTemplateNotes(prev => ({
+      ...prev,
+      [contractorId]: JSON.parse(cached),
+    }));
+  }
+
+  try {
+    const res = await apiFetch(
+      `/api/contractor-phase-notes/${contractorId}`
+    );
+
+    const remote = res?.notes ?? [];
+
+    setTemplateNotes(prev => ({
+      ...prev,
+      [contractorId]: remote,
+    }));
+
+    await AsyncStorage.setItem(
+      getTemplateKey(contractorId),
+      JSON.stringify(remote)
+    );
+  } catch {
+    // offline-safe
+  }
+}
+
+async function saveTemplateNotes(
+  contractorId: string,
+  notes: TemplateNote[]
+) {
+  // local first
+  setTemplateNotes(prev => ({
+    ...prev,
+    [contractorId]: notes,
+  }));
+
+  await AsyncStorage.setItem(
+    getTemplateKey(contractorId),
+    JSON.stringify(notes)
+  );
+
+  // attempt backend
+  try {
+    await apiFetch(
+      `/api/contractor-phase-notes/${contractorId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ notes }),
+      }
+    );
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'contractor_phase_notes_sync',
+      coalesceKey: `contractor_phase_notes_sync:${contractorId}`,
+      createdAt: nowIso(),
+      payload: { contractorId, notes },
+    });
+  }
+
+  flushSyncQueue();
+}
+
+async function addTemplateNote(contractorId: string) {
+  if (!newTemplateNoteA.trim()) return;
+
+  const existing = templateNotes[contractorId] ?? [];
+
+  const newItem: TemplateNote = {
+    id: Date.now().toString(),
+    phase: newTemplatePhase,
+    noteA: newTemplateNoteA.trim(),
+    noteB: newTemplateNoteB.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  const updated = [newItem, ...existing];
+
+  await saveTemplateNotes(contractorId, updated);
+
+  setNewTemplateNoteA('');
+  setNewTemplateNoteB('');
+  setShowAddTemplateFor(null);
+}
+
+async function deleteTemplateNote(
+  contractorId: string,
+  noteId: string
+) {
+  const existing = templateNotes[contractorId] ?? [];
+
+  const updated = existing.filter(n => n.id !== noteId);
+
+  await saveTemplateNotes(contractorId, updated);
+}
+
   return (
   <>
     <Stack.Screen
@@ -268,14 +444,20 @@ flushSyncQueue();
           <View key={contractor.id} style={styles.card}>
             
 <Pressable
-  onPress={() =>
-    setExpanded(prev =>
-      prev === contractor.id
+  onPress={async () => {
+    const next =
+      expanded === contractor.id
         ? null
-        : contractor.id
-    )
-  }
+        : contractor.id;
+
+    setExpanded(next);
+
+    if (next === contractor.id) {
+      await loadTemplateNotes(contractor.id);
+    }
+  }}
 >
+
   <Text style={styles.name}>
     {contractor.name}
   </Text>
@@ -347,6 +529,154 @@ flushSyncQueue();
                     </Text>
                   )}
                 </View>
+
+                                            {/* ============================== */}
+{/* Template Notes For Injection */}
+{/* ============================== */}
+
+<View style={{ marginTop: 20 }}>
+
+<Text style={{
+  fontWeight: '700',
+  marginBottom: 4,
+}}>
+  Phase Template Notes
+</Text>
+
+<Text style={{
+  fontSize: 12,
+  opacity: 0.6,
+  marginBottom: 10,
+}}>
+  Notes added here will automatically be injected into a job
+  when this contractor is assigned as default.
+</Text>
+
+  <Pressable
+    onPress={() =>
+      setShowAddTemplateFor(prev =>
+        prev === contractor.id
+          ? null
+          : contractor.id
+      )
+    }
+  >
+    <Text style={styles.link}>
+      {showAddTemplateFor === contractor.id
+        ? 'Cancel'
+        : '+ Add Template Note'}
+    </Text>
+  </Pressable>
+
+  {showAddTemplateFor === contractor.id && (
+    <View style={{ marginTop: 10 }}>
+
+{/* Phase Dropdown */}
+<Pressable
+  style={styles.input}
+  onPress={() =>
+    setShowPhasePicker(prev =>
+      prev === contractor.id ? null : contractor.id
+    )
+  }
+>
+  <Text>
+    {newTemplatePhase || 'Select Phase'}
+  </Text>
+</Pressable>
+
+{showPhasePicker === contractor.id && (
+  <View
+    style={{
+      backgroundColor: '#fff',
+      borderRadius: 10,
+      borderWidth: 1,
+      borderColor: '#e5e7eb',
+      marginBottom: 8,
+    }}
+  >
+    {phases.map(p => (
+      <Pressable
+        key={p}
+        onPress={() => {
+          setNewTemplatePhase(p);
+          setShowPhasePicker(null);
+        }}
+        style={{
+          padding: 10,
+          borderBottomWidth: 1,
+          borderBottomColor: '#f3f4f6',
+        }}
+      >
+        <Text>{p}</Text>
+      </Pressable>
+    ))}
+  </View>
+)}
+
+      <TextInput
+        placeholder="Instruction (Note A)"
+        value={newTemplateNoteA}
+        onChangeText={setNewTemplateNoteA}
+        style={styles.input}
+      />
+
+      <TextInput
+        placeholder="Clarification (Note B)"
+        value={newTemplateNoteB}
+        onChangeText={setNewTemplateNoteB}
+        style={styles.input}
+      />
+
+      <Pressable
+        style={styles.addBtn}
+        onPress={() =>
+          addTemplateNote(contractor.id)
+        }
+      >
+        <Text style={styles.addBtnText}>
+          Save Template Note
+        </Text>
+      </Pressable>
+    </View>
+  )}
+
+{(templateNotes[contractor.id] ?? []).map(n => (
+  <View
+    key={n.id}
+    style={{
+      marginTop: 10,
+      padding: 10,
+      borderRadius: 10,
+      backgroundColor: '#f3f4f6',
+    }}
+  >
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+      <Text style={{ fontWeight: '600' }}>
+        {n.phase}
+      </Text>
+
+      <Pressable
+        onPress={() =>
+          deleteTemplateNote(contractor.id, n.id)
+        }
+      >
+        <Text style={{ fontSize: 12, color: '#b91c1c' }}>
+          Delete
+        </Text>
+      </Pressable>
+    </View>
+
+    <Text>{n.noteA}</Text>
+
+    {n.noteB ? (
+      <Text style={{ opacity: 0.7 }}>
+        {n.noteB}
+      </Text>
+    ) : null}
+  </View>
+))}
+</View>
               </View>
             )}
           </View>

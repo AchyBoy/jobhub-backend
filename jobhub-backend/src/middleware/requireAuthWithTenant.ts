@@ -61,6 +61,14 @@ const { tenant_id, active_session_id, must_change_password } = userResult.rows[0
 // 🔐 Read device session header
 const deviceSession = req.headers["x-device-session"] as string | undefined;
 
+// 🔒 Soft single-device enforcement
+console.log("========== SESSION DEBUG ==========");
+console.log("USER ID:", userId);
+console.log("DB active_session_id:", active_session_id);
+console.log("HEADER x-device-session:", deviceSession);
+console.log("TOKEN session_id:", (userData.user as any)?.session_id);
+console.log("===================================");
+
 if (!deviceSession) {
   return res.status(401).json({
     error: "Missing device session",

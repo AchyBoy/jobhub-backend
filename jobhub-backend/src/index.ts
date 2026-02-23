@@ -17,8 +17,11 @@ import tenantRoutes from "./routes/tenant";
 import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
 import pushRoutes from "./routes/push";
+import contractorPhaseNotes from "./routes/contractorPhaseNotes";
 import ordersRouter from "./routes/orders";
 import tenantUsersRoutes from "./routes/tenantUsers";
+import supervisorPhaseNotes from './routes/supervisorPhaseNotes';
+
 import contractorsRoutes from "./routes/contractors";
 import vendorsRoutes from "./routes/vendors";
 import jobVendorsRoutes from "./routes/jobVendors";
@@ -73,6 +76,7 @@ app.use("/api/push", pushRoutes);
 app.use("/api/jobs", jobSupervisorsRoutes);
 app.use("/api/jobs", jobContractorsRoutes);
 app.use("/api/jobs", jobVendorsRoutes);
+app.use("/api/contractor-phase-notes", contractorPhaseNotes);
 app.use("/api/jobs", jobDefaultsRoutes);
 app.use("/api/permit-companies", permitCompaniesRoutes);
 app.use("/api/jobs", jobPermitCompaniesRoutes);
@@ -81,6 +85,7 @@ app.use("/api/jobs", jobInspectionsRoutes);
 app.use("/api/scheduled-tasks", scheduledTasksRoutes);
 app.use("/api/materials", materialsRoutes);
 app.use("/api/orders", ordersRouter);
+app.use('/api/supervisor-phase-notes', supervisorPhaseNotes);
 app.use("/api/tenant/users", tenantUsersRoutes);
 app.use("/api/suppliers", suppliersRoutes);
 // Templates (office / app only)

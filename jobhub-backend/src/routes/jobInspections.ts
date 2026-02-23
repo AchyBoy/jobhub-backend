@@ -85,4 +85,32 @@ VALUES ($1, $2, $3, $4)
   }
 });
 
+// ======================================
+// DELETE /api/jobs/:jobId/inspection
+// ======================================
+router.delete("/:jobId/inspection", async (req: any, res) => {
+  const tenantId = req.user?.tenantId;
+  const { jobId } = req.params;
+
+  if (!tenantId) {
+    return res.status(403).json({ error: "Missing tenant context" });
+  }
+
+  try {
+    await pool.query(
+      `
+DELETE FROM job_inspections
+WHERE job_id = $1
+  AND tenant_id = $2
+      `,
+      [jobId, tenantId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Failed to remove inspection", err);
+    res.status(500).json({ error: "Failed to remove inspection" });
+  }
+});
+
 export default router;

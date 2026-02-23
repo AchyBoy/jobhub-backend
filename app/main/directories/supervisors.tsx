@@ -34,9 +34,41 @@ export default function SupervisorsDirectory() {
   const [name, setName] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
 
-  useEffect(() => {
-    load();
-  }, []);
+  // ==============================
+// Supervisor Phase Template Notes
+// ==============================
+
+type TemplateNote = {
+  id: string;
+  phase: string;
+  noteA: string;
+  noteB?: string;
+  createdAt: string;
+};
+
+const [templateNotes, setTemplateNotes] =
+  useState<Record<string, TemplateNote[]>>({});
+
+const [showAddTemplateFor, setShowAddTemplateFor] =
+  useState<string | null>(null);
+
+const [newTemplatePhase, setNewTemplatePhase] =
+  useState<string>('');
+
+const [newTemplateNoteA, setNewTemplateNoteA] =
+  useState<string>('');
+
+const [newTemplateNoteB, setNewTemplateNoteB] =
+  useState<string>('');
+
+const [phases, setPhases] = useState<string[]>([]);
+const [showPhasePicker, setShowPhasePicker] =
+  useState<string | null>(null);
+
+useEffect(() => {
+  load();
+  loadPhases();
+}, []);
 
 async function load() {
   const stored = await AsyncStorage.getItem('supervisors_v1');
@@ -207,6 +239,140 @@ function addContact(
   });
 }
 
+function getTemplateKey(supervisorId: string) {
+  return `supervisor:${supervisorId}:phase_templates_v1`;
+}
+
+async function loadTemplateNotes(supervisorId: string) {
+  const cached = await AsyncStorage.getItem(
+    getTemplateKey(supervisorId)
+  );
+
+  if (cached) {
+    setTemplateNotes(prev => ({
+      ...prev,
+      [supervisorId]: JSON.parse(cached),
+    }));
+  }
+
+  try {
+    const res = await apiFetch(
+      `/api/supervisor-phase-notes/${supervisorId}`
+    );
+
+    const remote = res?.notes ?? [];
+
+    setTemplateNotes(prev => ({
+      ...prev,
+      [supervisorId]: remote,
+    }));
+
+    await AsyncStorage.setItem(
+      getTemplateKey(supervisorId),
+      JSON.stringify(remote)
+    );
+  } catch {}
+}
+
+async function saveTemplateNotes(
+  supervisorId: string,
+  notes: TemplateNote[]
+) {
+  setTemplateNotes(prev => ({
+    ...prev,
+    [supervisorId]: notes,
+  }));
+
+  await AsyncStorage.setItem(
+    getTemplateKey(supervisorId),
+    JSON.stringify(notes)
+  );
+
+  try {
+    await apiFetch(
+      `/api/supervisor-phase-notes/${supervisorId}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ notes }),
+      }
+    );
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'supervisor_phase_notes_sync',
+      coalesceKey: `supervisor_phase_notes_sync:${supervisorId}`,
+      createdAt: nowIso(),
+      payload: { supervisorId, notes },
+    });
+  }
+
+  flushSyncQueue();
+}
+
+async function addTemplateNote(supervisorId: string) {
+  if (!newTemplateNoteA.trim()) return;
+
+  const existing = templateNotes[supervisorId] ?? [];
+
+  const newItem: TemplateNote = {
+    id: Date.now().toString(),
+    phase: newTemplatePhase,
+    noteA: newTemplateNoteA.trim(),
+    noteB: newTemplateNoteB.trim(),
+    createdAt: new Date().toISOString(),
+  };
+
+  const updated = [newItem, ...existing];
+
+  await saveTemplateNotes(supervisorId, updated);
+
+  setNewTemplateNoteA('');
+  setNewTemplateNoteB('');
+  setShowAddTemplateFor(null);
+}
+
+async function deleteTemplateNote(
+  supervisorId: string,
+  noteId: string
+) {
+  const existing = templateNotes[supervisorId] ?? [];
+  const updated = existing.filter(n => n.id !== noteId);
+  await saveTemplateNotes(supervisorId, updated);
+}
+
+async function loadPhases() {
+  try {
+    const cached = await AsyncStorage.getItem('phases');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        setPhases(parsed);
+        if (!newTemplatePhase && parsed.length) {
+          setNewTemplatePhase(parsed[0]);
+        }
+      }
+    }
+
+    const res = await apiFetch('/api/phases');
+    const remote =
+      res?.phases?.map((p: any) => p.name) ?? [];
+
+    if (remote.length) {
+      setPhases(remote);
+      await AsyncStorage.setItem(
+        'phases',
+        JSON.stringify(remote)
+      );
+
+      if (!newTemplatePhase) {
+        setNewTemplatePhase(remote[0]);
+      }
+    }
+  } catch {
+    // offline safe
+  }
+}
+
   async function addSupervisor() {
     if (!name.trim()) return;
 
@@ -257,11 +423,16 @@ setName('');
 {supervisors.map(s => (
   <View key={s.id} style={styles.card}>
     <Pressable
-      onPress={() =>
-        setExpanded(prev =>
-          prev === s.id ? null : s.id
-        )
-      }
+onPress={async () => {
+  const next =
+    expanded === s.id ? null : s.id;
+
+  setExpanded(next);
+
+  if (next === s.id) {
+    await loadTemplateNotes(s.id);
+  }
+}}
     >
       <Text style={styles.name}>
         {s.name}
@@ -321,6 +492,146 @@ setName('');
             </Text>
           </Pressable>
         </View>
+                  {/* ============================== */}
+{/* Phase Template Notes */}
+{/* ============================== */}
+
+<View style={{ marginTop: 20 }}>
+  <Text style={{
+    fontWeight: '700',
+    marginBottom: 4,
+  }}>
+    Phase Template Notes
+  </Text>
+
+  <Text style={{
+    fontSize: 12,
+    opacity: 0.6,
+    marginBottom: 10,
+  }}>
+    Notes added here will automatically be injected into a job
+    when this supervisor is assigned as default.
+  </Text>
+
+  <Pressable
+    onPress={() =>
+      setShowAddTemplateFor(prev =>
+        prev === s.id ? null : s.id
+      )
+    }
+  >
+    <Text style={styles.contactAddText}>
+      {showAddTemplateFor === s.id
+        ? 'Cancel'
+        : '+ Add Template Note'}
+    </Text>
+  </Pressable>
+
+  {showAddTemplateFor === s.id && (
+    <View style={{ marginTop: 10 }}>
+      
+      {/* Phase Dropdown */}
+      <Pressable
+        style={styles.input}
+        onPress={() =>
+          setShowPhasePicker(prev =>
+            prev === s.id ? null : s.id
+          )
+        }
+      >
+        <Text>
+          {newTemplatePhase || 'Select Phase'}
+        </Text>
+      </Pressable>
+
+      {showPhasePicker === s.id && (
+        <View style={{
+          backgroundColor: '#fff',
+          borderRadius: 10,
+          borderWidth: 1,
+          borderColor: '#e5e7eb',
+          marginBottom: 8,
+        }}>
+          {phases.map(p => (
+            <Pressable
+              key={p}
+              onPress={() => {
+                setNewTemplatePhase(p);
+                setShowPhasePicker(null);
+              }}
+              style={{
+                padding: 10,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f3f4f6',
+              }}
+            >
+              <Text>{p}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      <TextInput
+        placeholder="Instruction (Note A)"
+        value={newTemplateNoteA}
+        onChangeText={setNewTemplateNoteA}
+        style={styles.input}
+      />
+
+      <TextInput
+        placeholder="Clarification (Note B)"
+        value={newTemplateNoteB}
+        onChangeText={setNewTemplateNoteB}
+        style={styles.input}
+      />
+
+      <Pressable
+        style={styles.addBtn}
+        onPress={() => addTemplateNote(s.id)}
+      >
+        <Text style={styles.addBtnText}>
+          Save Template Note
+        </Text>
+      </Pressable>
+    </View>
+  )}
+
+{(templateNotes[s.id] ?? []).map(n => (
+  <View
+    key={n.id}
+    style={{
+      marginTop: 10,
+      padding: 10,
+      borderRadius: 10,
+      backgroundColor: '#f3f4f6',
+    }}
+  >
+    <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+      <Text style={{ fontWeight: '600' }}>
+        {n.phase}
+      </Text>
+
+      <Pressable
+        onPress={() =>
+          deleteTemplateNote(s.id, n.id)
+        }
+      >
+        <Text style={{ fontSize: 12, color: '#b91c1c' }}>
+          Delete
+        </Text>
+      </Pressable>
+    </View>
+
+    <Text>{n.noteA}</Text>
+
+    {n.noteB ? (
+      <Text style={{ opacity: 0.7 }}>
+        {n.noteB}
+      </Text>
+    ) : null}
+  </View>
+))}
+</View>
       </View>
     )}
   </View>
