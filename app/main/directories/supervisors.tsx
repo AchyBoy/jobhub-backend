@@ -11,6 +11,7 @@ import { apiFetch } from '../../../src/lib/apiClient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 
@@ -31,6 +32,7 @@ type Supervisor = {
 export default function SupervisorsDirectory() {
   const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
   const [name, setName] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   useEffect(() => {
     load();
@@ -222,101 +224,180 @@ setName('');
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Supervisors</Text>
+  <>
+    <Stack.Screen
+      options={{
+        title: 'Supervisors',
+        headerShadowVisible: false,
+      }}
+    />
 
-      <View style={styles.card}>
-        <TextInput
-          placeholder="Name"
-          value={name}
-          onChangeText={setName}
-          style={styles.input}
-        />
+    <SafeAreaView
+      style={styles.container}
+      edges={['left','right','bottom']}
+    >
 
-
-        <Pressable onPress={addSupervisor}>
-          <Text style={styles.add}>+ Add Supervisor</Text>
-        </Pressable>
-      </View>
-
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
-        {supervisors.map(s => (
-          <View key={s.id} style={styles.card}>
-            <Text style={styles.name}>{s.name}</Text>
-
-{s.contacts.map(contact => (
+<View style={styles.addRow}>
   <TextInput
-    key={contact.id}
-    placeholder={
-      contact.type === 'phone'
-        ? 'Phone number'
-        : 'Email address'
-    }
-    value={contact.value}
-    onChangeText={text =>
-      updateContact(s.id, contact.id, text)
-    }
+    placeholder="Supervisor name"
+    value={name}
+    onChangeText={setName}
     style={styles.input}
   />
-))}
-
-<View style={{ flexDirection: 'row', gap: 10, marginTop: 8 }}>
-  <Pressable
-    onPress={() => addContact(s.id, 'phone')}
-  >
-    <Text style={{ color: '#2563eb', fontWeight: '600' }}>
-      + Phone
-    </Text>
-  </Pressable>
 
   <Pressable
-    onPress={() => addContact(s.id, 'email')}
+    style={styles.addBtn}
+    onPress={addSupervisor}
   >
-    <Text style={{ color: '#2563eb', fontWeight: '600' }}>
-      + Email
-    </Text>
+    <Text style={styles.addBtnText}>Add</Text>
   </Pressable>
 </View>
-          </View>
+
+      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+{supervisors.map(s => (
+  <View key={s.id} style={styles.card}>
+    <Pressable
+      onPress={() =>
+        setExpanded(prev =>
+          prev === s.id ? null : s.id
+        )
+      }
+    >
+      <Text style={styles.name}>
+        {s.name}
+      </Text>
+
+      {expanded !== s.id && (
+        <Text
+          style={{
+            fontSize: 12,
+            opacity: 0.5,
+            marginTop: 4,
+          }}
+        >
+          Tap to edit supervisor details
+        </Text>
+      )}
+    </Pressable>
+
+    {expanded === s.id && (
+      <View style={{ marginTop: 12 }}>
+        {s.contacts.map(contact => (
+          <TextInput
+            key={contact.id}
+            placeholder={
+              contact.type === 'phone'
+                ? 'Phone number'
+                : 'Email address'
+            }
+            value={contact.value}
+            onChangeText={text =>
+              updateContact(s.id, contact.id, text)
+            }
+            style={styles.input}
+          />
         ))}
+
+        <View style={styles.contactBtns}>
+          <Pressable
+            style={styles.contactAdd}
+            onPress={() =>
+              addContact(s.id, 'phone')
+            }
+          >
+            <Text style={styles.contactAddText}>
+              + Phone
+            </Text>
+          </Pressable>
+
+          <Pressable
+            style={styles.contactAdd}
+            onPress={() =>
+              addContact(s.id, 'email')
+            }
+          >
+            <Text style={styles.contactAddText}>
+              + Email
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+    )}
+  </View>
+))}
       </ScrollView>
     </SafeAreaView>
+      </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
+    padding: 20,
     backgroundColor: '#fff',
   },
-  title: {
-    fontSize: 26,
-    fontWeight: '700',
+
+  addRow: {
+    flexDirection: 'row',
+    gap: 8,
     marginBottom: 20,
   },
+
+  input: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#eff6ff',
+    marginBottom: 8,
+  },
+
+  addBtn: {
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+    borderRadius: 12,
+    backgroundColor: '#2563eb',
+  },
+
+  addBtnText: {
+    color: '#fff',
+    fontWeight: '600',
+  },
+
   card: {
     padding: 16,
     borderRadius: 16,
     backgroundColor: '#eff6ff',
     borderWidth: 1,
-    borderColor: '#93c5fd',
-    marginBottom: 16,
+    borderColor: '#bfdbfe',
+    marginBottom: 14,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: '#cbd5e1',
-    borderRadius: 8,
-    padding: 8,
-    marginBottom: 8,
-  },
-  add: {
-    color: '#2563eb',
+
+  name: {
+    fontSize: 18,
     fontWeight: '600',
   },
-  name: {
-    fontWeight: '700',
-    marginBottom: 6,
+
+  contactBtns: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+
+  contactAdd: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#bfdbfe',
+    backgroundColor: '#ffffff',
+  },
+
+  contactAddText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#1e40af',
   },
 });

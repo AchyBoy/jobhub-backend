@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
@@ -237,8 +238,18 @@ flushSyncQueue();
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Contractors</Text>
+  <>
+    <Stack.Screen
+      options={{
+        title: 'Contractors',
+        headerShadowVisible: false,
+      }}
+    />
+
+    <SafeAreaView
+      style={styles.container}
+      edges={['left','right','bottom']}
+    >
 
       <View style={styles.addRow}>
         <TextInput
@@ -255,19 +266,32 @@ flushSyncQueue();
       <ScrollView>
         {contractors.map(contractor => (
           <View key={contractor.id} style={styles.card}>
-            <Pressable
-              onPress={() =>
-                setExpanded(prev =>
-                  prev === contractor.id
-                    ? null
-                    : contractor.id
-                )
-              }
-            >
-              <Text style={styles.name}>
-                {contractor.name}
-              </Text>
-            </Pressable>
+            
+<Pressable
+  onPress={() =>
+    setExpanded(prev =>
+      prev === contractor.id
+        ? null
+        : contractor.id
+    )
+  }
+>
+  <Text style={styles.name}>
+    {contractor.name}
+  </Text>
+
+  {expanded !== contractor.id && (
+    <Text
+      style={{
+        fontSize: 12,
+        opacity: 0.5,
+        marginTop: 4,
+      }}
+    >
+      Tap to edit contractor details
+    </Text>
+  )}
+</Pressable>
 
             {expanded === contractor.id && (
               <View style={{ marginTop: 10 }}>
@@ -329,6 +353,7 @@ flushSyncQueue();
         ))}
       </ScrollView>
     </SafeAreaView>
+    </>
   );
 }
 

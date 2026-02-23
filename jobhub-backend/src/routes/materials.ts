@@ -42,46 +42,58 @@ router.post("/", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
   if (!tenantId) return res.status(403).json({ error: "Missing tenant" });
 
-  const {
-    id,
-    jobId,
-    itemName,
-    itemCode,
-    phase,
-    supplierId,
-    qtyNeeded,
-  } = req.body;
+const {
+  id,
+  jobId,
+  itemName,
+  itemCode,
+  phase,
+  supplierId,
+  vendorId,
+  qtyNeeded,
+} = req.body;
 
   if (!id || !jobId || !itemName || !phase) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
   try {
-    await pool.query(
-      `
-      INSERT INTO materials
-        (id, tenant_id, job_id, item_name, item_code, phase, supplier_id, qty_needed)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-      ON CONFLICT (id)
-      DO UPDATE SET
-        item_name = EXCLUDED.item_name,
-        item_code = EXCLUDED.item_code,
-        phase = EXCLUDED.phase,
-        supplier_id = EXCLUDED.supplier_id,
-        qty_needed = EXCLUDED.qty_needed,
-        updated_at = NOW()
-      `,
-      [
-        id,
-        tenantId,
-        jobId,
-        itemName,
-        itemCode ?? null,
-        phase,
-        supplierId ?? null,
-        qtyNeeded ?? 0,
-      ]
-    );
+await pool.query(
+  `
+  INSERT INTO materials
+    (id, tenant_id, job_id, item_name, item_code, phase, supplier_id, vendor_id, qty_needed)
+  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+  ON CONFLICT (id)
+  DO UPDATE SET
+    item_name = EXCLUDED.item_name,
+    item_code = EXCLUDED.item_code,
+    phase = EXCLUDED.phase,
+    supplier_id =
+  CASE
+    WHEN EXCLUDED.vendor_id IS NOT NULL THEN NULL
+    ELSE EXCLUDED.supplier_id
+  END,
+
+vendor_id =
+  CASE
+    WHEN EXCLUDED.supplier_id IS NOT NULL THEN NULL
+    ELSE EXCLUDED.vendor_id
+  END,
+    qty_needed = EXCLUDED.qty_needed,
+    updated_at = NOW()
+  `,
+  [
+    id,
+    tenantId,
+    jobId,
+    itemName,
+    itemCode ?? null,
+    phase,
+    supplierId ?? null,
+    vendorId ?? null,
+    qtyNeeded ?? 0,
+  ]
+);
 
     res.json({ success: true });
   } catch (err) {
@@ -101,6 +113,8 @@ router.patch("/:id", async (req: any, res) => {
 const {
   qtyNeeded,
   supplierId,
+  vendorId,   // ✅ NEW
+
   phase,
   itemName,
   itemCode,
@@ -119,47 +133,63 @@ const {
   if (!tenantId) return res.status(403).json({ error: "Missing tenant" });
 
   try {
-    await pool.query(
-      `
+await pool.query(
+  `
 UPDATE materials
 SET
 qty_needed = COALESCE($1::int, qty_needed),
-supplier_id = COALESCE($2, supplier_id),
-phase = COALESCE($3, phase),
-item_name = COALESCE($4, item_name),
-item_code = COALESCE($5, item_code),
-status = COALESCE($6, status),
-date_ordered = COALESCE($7, date_ordered),
-date_delivered = COALESCE($8, date_delivered),
-qty_on_hand_applied = COALESCE($9::int, qty_on_hand_applied),
-qty_from_storage = COALESCE($10::int, qty_from_storage),
-qty_ordered = COALESCE($11::int, qty_ordered),
-order_id = COALESCE($12, order_id),
-date_storage_ordered = COALESCE($13, date_storage_ordered),
-storage_order_id = COALESCE($14, storage_order_id),
+
+supplier_id =
+  CASE
+    WHEN $2 IS NOT NULL THEN $2
+    WHEN $3 IS NOT NULL THEN NULL
+    ELSE supplier_id
+  END,
+
+vendor_id =
+  CASE
+    WHEN $3 IS NOT NULL THEN $3
+    WHEN $2 IS NOT NULL THEN NULL
+    ELSE vendor_id
+  END,
+
+phase = COALESCE($4, phase),
+item_name = COALESCE($5, item_name),
+item_code = COALESCE($6, item_code),
+status = COALESCE($7, status),
+date_ordered = COALESCE($8, date_ordered),
+date_delivered = COALESCE($9, date_delivered),
+qty_on_hand_applied = COALESCE($10::int, qty_on_hand_applied),
+qty_from_storage = COALESCE($11::int, qty_from_storage),
+qty_ordered = COALESCE($12::int, qty_ordered),
+order_id = COALESCE($13, order_id),
+date_storage_ordered = COALESCE($14, date_storage_ordered),
+storage_order_id = COALESCE($15, storage_order_id),
 updated_at = NOW()
-WHERE id = $15
-AND tenant_id = $16
-      `,
+
+WHERE id = $16
+AND tenant_id = $17
+`,
 [
   qtyNeeded ?? null,        // $1
   supplierId ?? null,       // $2
-  phase ?? null,            // $3
-  itemName ?? null,         // $4
-  itemCode ?? null,         // $5
-  status ?? null,           // $6
-  dateOrdered ?? null,      // $7
-  dateDelivered ?? null,    // $8
-  qtyOnHandApplied ?? null, // $9
-  qtyFromStorage ?? null,   // $10
-  qtyOrdered ?? null,       // $11
-  orderId ?? null,          // $12
-  dateStorageOrdered ?? null, // $13
-  storageOrderId ?? null,   // $14 ✅ NEW
-  id,                       // $15
-  tenantId,                 // $16
+  vendorId ?? null,         // $3
+  phase ?? null,            // $4
+  itemName ?? null,         // $5
+  itemCode ?? null,         // $6
+  status ?? null,           // $7
+  dateOrdered ?? null,      // $8
+  dateDelivered ?? null,    // $9
+  qtyOnHandApplied ?? null, // $10
+  qtyFromStorage ?? null,   // $11
+  qtyOrdered ?? null,       // $12
+  orderId ?? null,          // $13
+  dateStorageOrdered ?? null, // $14
+  storageOrderId ?? null,   // $15
+  id,                       // $16
+  tenantId,                 // $17
 ]
-    );
+);
 
     res.json({ success: true });
   } catch (err) {
@@ -320,6 +350,38 @@ router.post("/:id/consume", async (req: any, res) => {
     res.status(500).json({ error: "Consume failed" });
   } finally {
     client.release();
+  }
+});
+
+/* =========================================================
+   GET /api/job/:id/vendors
+   Return vendors assigned to job
+   ========================================================= */
+router.get("/:id/vendors", async (req: any, res) => {
+  const tenantId = req.user?.tenantId;
+  const { id } = req.params;
+
+  if (!tenantId) {
+    return res.status(403).json({ error: "Missing tenant" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      SELECT v.id, v.name
+      FROM job_vendors jv
+      JOIN vendors v ON v.id = jv.vendor_id
+      WHERE jv.job_id = $1
+      AND jv.tenant_id = $2
+      ORDER BY v.name ASC
+      `,
+      [id, tenantId]
+    );
+
+    res.json({ vendors: result.rows });
+  } catch (err) {
+    console.error("❌ Failed loading job vendors", err);
+    res.status(500).json({ error: "Failed loading vendors" });
   }
 });
 

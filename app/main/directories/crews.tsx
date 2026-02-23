@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
+import { Stack } from 'expo-router';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 type Contact = {
@@ -251,8 +252,18 @@ await AsyncStorage.setItem(
 }
 
   return (
-    <SafeAreaView style={styles.container} edges={['bottom']}>
-      <Text style={styles.title}>Crews</Text>
+  <>
+    <Stack.Screen
+      options={{
+        title: 'Crews',
+        headerShadowVisible: false,
+      }}
+    />
+
+    <SafeAreaView
+      style={styles.container}
+      edges={['left','right','bottom']}
+    >
 
       {/* Add Crew */}
       <View style={styles.addRow}>
@@ -273,17 +284,30 @@ await AsyncStorage.setItem(
       >
         {crews.map(crew => (
           <View key={crew.id} style={styles.card}>
-            <Pressable
-              onPress={() =>
-                setExpandedCrew(prev =>
-                  prev === crew.id ? null : crew.id
-                )
-              }
-            >
-              <Text style={styles.crewName}>
-                {crew.name}
-              </Text>
-            </Pressable>
+            
+<Pressable
+  onPress={() =>
+    setExpandedCrew(prev =>
+      prev === crew.id ? null : crew.id
+    )
+  }
+>
+  <Text style={styles.crewName}>
+    {crew.name}
+  </Text>
+
+  {expandedCrew !== crew.id && (
+    <Text
+      style={{
+        fontSize: 12,
+        opacity: 0.5,
+        marginTop: 4,
+      }}
+    >
+      Tap to edit crew details
+    </Text>
+  )}
+</Pressable>
 
             {expandedCrew === crew.id && (
               <View style={{ marginTop: 12 }}>
@@ -346,6 +370,7 @@ await AsyncStorage.setItem(
         ))}
       </ScrollView>
     </SafeAreaView>
+    </>
   );
 }
 

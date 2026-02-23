@@ -168,6 +168,16 @@ type SyncItem =
       updates: any;
     };
   }
+
+  | {
+    id: string;
+    type: 'material_delete';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      materialId: string;
+    };
+  }
 | {
     id: string;
     type: 'order_create';
@@ -399,6 +409,14 @@ if (item.type === 'material_update') {
   await apiFetch(`/api/materials/${materialId}`, {
     method: 'PATCH',
     body: JSON.stringify(updates),
+  });
+}
+
+if (item.type === 'material_delete') {
+  const { materialId } = item.payload;
+
+  await apiFetch(`/api/materials/${materialId}`, {
+    method: 'DELETE',
   });
 }
 

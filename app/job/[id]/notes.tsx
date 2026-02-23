@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, Stack } from 'expo-router';
@@ -92,6 +93,7 @@ const lastTapRef = useRef<Record<string, number>>({});
 const [searchQuery, setSearchQuery] = useState('');
 const [showSearch, setShowSearch] = useState(false);
 const [showAddItem, setShowAddItem] = useState(false);
+const [role, setRole] = useState<string | null>(null);
 
   // NOTE (future us):
   // Prevents accidental data loss on first load.
@@ -101,6 +103,21 @@ const [showAddItem, setShowAddItem] = useState(false);
   useEffect(() => {
   latestNotesRef.current = notes;
 }, [notes]);
+
+async function deleteNote(noteId: string) {
+  if (!id) return;
+
+  const updated = notes.filter(n => n.id !== noteId);
+
+  setNotes(updated);
+
+  await AsyncStorage.setItem(
+    `job:${id}:notes`,
+    JSON.stringify(updated)
+  );
+
+  await syncNotesToBackend(id, updated);
+}
 
 async function syncNotesToBackend(jobId: string, notes: JobNote[]) {
   if (!backendHydrated) {
@@ -316,7 +333,17 @@ useEffect(() => {
   loadNotes();
   loadPhases();
   loadJob();
+  loadRole();
 }, [id]);
+
+async function loadRole() {
+  try {
+    const res = await apiFetch('/api/tenant/me');
+    setRole(res?.role ?? null);
+  } catch {
+    setRole(null);
+  }
+}
 
 async function loadJob() {
 
@@ -697,6 +724,23 @@ await syncNotesToBackend(id, updated);
           {activeNotes.map(note => (
 <Pressable
   key={note.id}
+delayLongPress={600}
+onLongPress={() => {
+  if (role !== 'owner' && role !== 'admin') return;
+
+  Alert.alert(
+    'Delete Note?',
+    'This cannot be undone.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => deleteNote(note.id),
+      },
+    ]
+  );
+}}
   onPress={() => handleNoteTap(note.id, phase)}
   onLayout={e => {
     notePositions.current[note.id] = e.nativeEvent.layout.y;
@@ -726,10 +770,6 @@ await syncNotesToBackend(id, updated);
   </Text>
 )}
 
-<Text style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>
-  Double tap to collapse
-</Text>
-
 {/* NOTE B — clarification / context */}
 {editMode ? (
   <TextInput
@@ -746,6 +786,18 @@ await syncNotesToBackend(id, updated);
     {note.noteB}
   </Text>
 ) : null}
+
+<Text
+  style={{
+    fontSize: 11,
+    opacity: 0.4,
+    marginTop: 6,
+  }}
+>
+  {role === 'owner' || role === 'admin'
+  ? 'Double tap to collapse section – Hold to delete'
+  : 'Double tap to collapse section'}
+</Text>
 
 {/* NOTE (future us):
     Autosave indicator — ACTIVE / CREW NOTES
@@ -857,6 +909,23 @@ await syncNotesToBackend(id, updated);
         officeCompleted.map(note => (
 <Pressable
   key={note.id}
+delayLongPress={600}
+onLongPress={() => {
+  if (role !== 'owner' && role !== 'admin') return;
+
+  Alert.alert(
+    'Delete Note?',
+    'This cannot be undone.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Delete',
+        style: 'destructive',
+        onPress: () => deleteNote(note.id),
+      },
+    ]
+  );
+}}
   onPress={() => handleNoteTap(note.id, phase)}
   onLayout={e => {
     notePositions.current[note.id] = e.nativeEvent.layout.y;
@@ -882,10 +951,6 @@ await syncNotesToBackend(id, updated);
               </Text>
             )}
 
-            <Text style={{ fontSize: 11, opacity: 0.4, marginTop: 4 }}>
-  Double tap to collapse
-</Text>
-
             {/* NOTE B — clarification / context */}
             {editMode ? (
               <TextInput
@@ -902,6 +967,18 @@ await syncNotesToBackend(id, updated);
                 {note.noteB}
               </Text>
             ) : null}
+
+<Text
+  style={{
+    fontSize: 11,
+    opacity: 0.4,
+    marginTop: 6,
+  }}
+>
+  {role === 'owner' || role === 'admin'
+  ? 'Double tap to collapse section – Hold to delete'
+  : 'Double tap to collapse section'}
+</Text>
 
             {/* Autosave indicator */}
             <View style={styles.autosaveSlot}>

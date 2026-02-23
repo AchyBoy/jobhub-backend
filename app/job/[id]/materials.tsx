@@ -38,9 +38,14 @@ const router = useRouter();
 const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
 const [expandedSuppliers, setExpandedSuppliers] = useState<Record<string, boolean>>({});
   const [materials, setMaterials] = useState<any[]>([]);
+  const [role, setRole] = useState<string | null>(null);
   const [jobName, setJobName] = useState<string>('');
   const [phases, setPhases] = useState<string[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
+  const [vendors, setVendors] = useState<any[]>([]);
+const [vendorMap, setVendorMap] = useState<Record<string, any>>({});
+
+const [newVendorId, setNewVendorId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
 const [showSearch, setShowSearch] = useState(false);
 const [highlightedMaterial, setHighlightedMaterial] = useState<string | null>(null);
@@ -56,12 +61,51 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
   const [newItemCode, setNewItemCode] = useState<string | null>(null);
+  const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
+const [showActiveOnly, setShowActiveOnly] = useState(false);
 const [addMode, setAddMode] = useState(false);
-
 const [orderPreviewOpen, setOrderPreviewOpen] = useState(false);
 const [pendingOrderItems, setPendingOrderItems] = useState<
   { materialId: string; qtyOrdered: number }[]
 >([]);
+
+async function deleteMaterial(materialId: string) {
+  if (role !== 'owner' && role !== 'admin') return;
+
+  const updated = materials.filter(m => m.id !== materialId);
+
+  setMaterials(updated);
+
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/materials/${materialId}`, {
+      method: 'DELETE',
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'material_delete',
+      coalesceKey: `material_delete:${materialId}`,
+      createdAt: nowIso(),
+      payload: { materialId },
+    });
+  }
+
+  flushSyncQueue();
+}
+
+async function loadRole() {
+  try {
+    const res = await apiFetch('/api/tenant/me');
+    setRole(res?.role ?? null);
+  } catch {
+    setRole(null);
+  }
+}
 
 function handleSupplierMaterialTap(materialId: string, supplierId: string) {
   const now = Date.now();
@@ -106,15 +150,30 @@ const {
   const internal: any[] = [];
 
   for (const m of materials) {
+
+  if (showActiveOnly) {
+    const hasActivity =
+      (m.qty_needed ?? 0) > 0 ||
+      (m.qty_ordered ?? 0) > 0 ||
+      (m.qty_from_storage ?? 0) > 0 ||
+      (m.qty_on_hand_applied ?? 0) > 0;
+
+    if (!hasActivity) continue;
+  }
     // group by phase
     if (!byPhase[m.phase]) byPhase[m.phase] = [];
     byPhase[m.phase].push(m);
 
     // group by supplier
-    if (m.supplier_id) {
-      if (!bySupplier[m.supplier_id]) bySupplier[m.supplier_id] = [];
-      bySupplier[m.supplier_id].push(m);
-    }
+if (m.supplier_id) {
+  if (!bySupplier[m.supplier_id]) bySupplier[m.supplier_id] = [];
+  bySupplier[m.supplier_id].push(m);
+}
+
+if (m.vendor_id) {
+  if (!bySupplier[m.vendor_id]) bySupplier[m.vendor_id] = [];
+  bySupplier[m.vendor_id].push(m);
+}
 
     // internal bucket
     if (
@@ -131,17 +190,19 @@ const {
     internalMaterials: internal,
     activeSupplierIds: Object.keys(bySupplier),
   };
-}, [materials]);
+}, [materials, showActiveOnly]);
 
-  useEffect(() => {
-    loadMaterials();
-    loadPhases();
-    loadSuppliers();
-    loadJob();
-    loadSelections();
+useEffect(() => {
+  loadMaterials();
+  loadPhases();
+  loadSuppliers();
+  loadJobVendors();
+  loadJob();
+  loadSelections();
+  loadRole();
 
-    setTimeout(() => flushSyncQueue(), 50);
-  }, [jobId]);
+  setTimeout(() => flushSyncQueue(), 50);
+}, [jobId]);
 
 async function loadJob() {
   try {
@@ -258,31 +319,68 @@ async function loadSuppliers() {
   } catch {}
 }
 
+async function loadJobVendors() {
+  const key = `job:${jobId}:vendors`;
+
+  // 1️⃣ LOAD LOCAL FIRST (instant render)
+  const local = await AsyncStorage.getItem(key);
+  if (local) {
+    try {
+      const list = JSON.parse(local);
+      setVendors(list);
+
+      const map: Record<string, any> = {};
+      list.forEach((v: any) => {
+        map[v.id] = v;
+      });
+      setVendorMap(map);
+    } catch {}
+  }
+
+  // 2️⃣ THEN REFRESH FROM API (non-blocking)
+  try {
+    const res = await apiFetch(`/api/jobs/${jobId}/vendor`);
+    const vendor = res?.vendor;
+
+    const list = vendor
+      ? [{ id: vendor.vendorId, name: vendor.name }]
+      : [];
+
+    setVendors(list);
+    await AsyncStorage.setItem(key, JSON.stringify(list));
+
+    const map: Record<string, any> = {};
+    list.forEach((v: any) => {
+      map[v.id] = v;
+    });
+    setVendorMap(map);
+  } catch {
+    // offline — do nothing
+  }
+}
+
   async function loadSelections() {
   try {
     const savedPhase = await AsyncStorage.getItem('materials:selectedPhase');
     const savedSupplier = await AsyncStorage.getItem('materials:selectedSupplier');
+    const savedVendor = await AsyncStorage.getItem('materials:selectedVendor');
 
     if (savedPhase) setNewPhase(savedPhase);
     if (savedSupplier) setNewSupplierId(savedSupplier);
+if (savedVendor) setNewVendorId(savedVendor);
   } catch {}
 }
 
   async function createMaterial() {
     if (!newName) return;
 
-if (!newPhase && !newSupplierId) {
-  alert('Please select phase and supplier');
-  return;
-}
-
 if (!newPhase) {
   alert('Please select phase');
   return;
 }
 
-if (!newSupplierId) {
-  alert('Please select supplier');
+if (!newSupplierId && !newVendorId) {
+  alert('Select a Supplier OR Vendor');
   return;
 }
 
@@ -292,7 +390,8 @@ if (!newSupplierId) {
       item_name: newName,
       item_code: newItemCode,
       phase: newPhase,
-      supplier_id: newSupplierId,
+      supplier_id: newVendorId ? null : newSupplierId,
+vendor_id: newVendorId ?? null,
       qty_needed: 0,
       status: 'draft',
     };
@@ -314,7 +413,8 @@ apiFetch('/api/materials', {
     itemName: newName,
     itemCode: newItemCode,
     phase: newPhase,
-    supplierId: newSupplierId,
+    supplierId: newVendorId ? null : newSupplierId,
+vendorId: newVendorId ?? null,
     qtyNeeded: 0,
   }),
 }).catch(() => {
@@ -337,7 +437,7 @@ apiFetch('/api/materials', {
    async function changeSupplier(material: any, supplierId: string) {
   const updated = materials.map(m =>
     m.id === material.id
-      ? { ...m, supplier_id: supplierId }
+      ? { ...m, supplier_id: supplierId, vendor_id: null }
       : m
   );
 
@@ -962,18 +1062,20 @@ return (
       }}
     >
       <ScrollView keyboardShouldPersistTaps="handled">
-        {materials
-          .filter(m =>
-            (
-              m.item_name +
-              ' ' +
-              (m.item_code ?? '') +
-              ' ' +
-              (supplierMap[m.supplier_id]?.name ?? '')
-            )
-              .toLowerCase()
-              .includes(searchQuery.toLowerCase())
-          )
+{materials
+  .filter(m =>
+    (
+      m.item_name +
+      ' ' +
+      (m.item_code ?? '') +
+      ' ' +
+      (supplierMap[m.supplier_id]?.name ?? '') +
+      ' ' +
+      (vendorMap[m.vendor_id]?.name ?? '')
+    )
+      .toLowerCase()
+      .includes(searchQuery.toLowerCase())
+  )
           .slice(0, 20)
           .map(m => (
             <Pressable
@@ -1018,7 +1120,12 @@ return (
               ) : null}
 
               <Text style={{ fontSize: 12, opacity: 0.6 }}>
-                {m.phase} • {supplierMap[m.supplier_id]?.name ?? '—'}
+                {m.phase} • {
+  m.vendor_id
+    ? vendorMap[m.vendor_id]?.name
+    : supplierMap[m.supplier_id]?.name
+  ?? '—'
+}
               </Text>
             </Pressable>
           ))}
@@ -1064,33 +1171,99 @@ return (
     </View>
   )}
 
-  {/* SUPPLIER */}
-  <Pressable
-    onPress={() => setSupplierPickerOpen(!supplierPickerOpen)}
-    style={styles.selectorCollapsed}
+{/* SUPPLIER */}
+<Pressable
+  onPress={() => setSupplierPickerOpen(!supplierPickerOpen)}
+  style={[
+    styles.selectorCollapsed,
+    newSupplierId && !newVendorId && {
+      backgroundColor: '#dcfce7',
+      borderWidth: 1,
+      borderColor: '#16a34a',
+    },
+  ]}
+>
+  <Text
+    style={{
+      fontWeight: '600',
+      color: newSupplierId && !newVendorId ? '#15803d' : '#000',
+    }}
   >
-    <Text style={{ fontWeight: '600' }}>
-      Supplier: {supplierMap[newSupplierId || '']?.name || 'Select Supplier'}
-    </Text>
-  </Pressable>
+    Supplier: {
+      newSupplierId
+        ? supplierMap[newSupplierId]?.name
+        : 'Select Supplier'
+    }
+  </Text>
+</Pressable>
 
-  {supplierPickerOpen && (
-    <View>
-      {suppliers.map(s => (
-        <Pressable
-          key={s.id}
-          onPress={async () => {
-            setNewSupplierId(s.id);
-            await AsyncStorage.setItem('materials:selectedSupplier', s.id);
-            setSupplierPickerOpen(false);
-          }}
-          style={styles.selectorOption}
-        >
-          <Text>{s.name}</Text>
-        </Pressable>
-      ))}
-    </View>
-  )}
+{supplierPickerOpen && (
+  <View style={{ marginBottom: 10 }}>
+    {suppliers.map(s => (
+      <Pressable
+        key={s.id}
+        onPress={async () => {
+          setNewSupplierId(s.id);
+          setNewVendorId(null);
+          await AsyncStorage.setItem('materials:selectedSupplier', s.id);
+          setSupplierPickerOpen(false);
+        }}
+        style={styles.selectorOption}
+      >
+        <Text>{s.name}</Text>
+      </Pressable>
+    ))}
+  </View>
+)}
+
+{/* VENDOR — separate button */}
+{vendors.length > 0 && (
+  <>
+<Pressable
+  onPress={() => setVendorPickerOpen(v => !v)}
+  style={[
+    styles.selectorCollapsed,
+    newVendorId && {
+      backgroundColor: '#dcfce7',
+      borderWidth: 1,
+      borderColor: '#16a34a',
+    },
+  ]}
+>
+  <Text
+    style={{
+      fontWeight: '600',
+      color: newVendorId ? '#15803d' : '#000',
+    }}
+  >
+    Vendor: {
+      newVendorId
+        ? vendorMap[newVendorId]?.name
+        : 'Select Vendor'
+    }
+  </Text>
+</Pressable>
+
+    {vendorPickerOpen && (
+      <View style={{ marginBottom: 10 }}>
+        {vendors.map(v => (
+          <Pressable
+            key={v.id}
+            onPress={async () => {
+              setNewVendorId(v.id);
+              setNewSupplierId(null);
+              await AsyncStorage.setItem('materials:selectedVendor', v.id);
+              setVendorPickerOpen(false);
+            }}
+            style={styles.selectorOption}
+          >
+            <Text>{v.name}</Text>
+          </Pressable>
+        ))}
+      </View>
+    )}
+  </>
+)}
 
 </View>
 
@@ -1178,16 +1351,20 @@ return (
 
 {/* ORDER BUTTON */}
 <Pressable
-  disabled={
+disabled={
   ordering ||
   !newPhase ||
-  !newSupplierId
+  (!newSupplierId && !newVendorId)
 }
 onPress={() => {
   if (ordering) return;
-  if (!newPhase || !newSupplierId) return;
+  if (!newPhase || (!newSupplierId && !newVendorId)) return;
 
-  const supplier = supplierMap[newSupplierId];
+const supplier = newVendorId
+  ? vendorMap[newVendorId]
+  : newSupplierId
+    ? supplierMap[newSupplierId]
+    : null;
 
   let itemsToOrder: { materialId: string; qtyOrdered: number }[] = [];
 
@@ -1264,40 +1441,56 @@ setOrderPreviewOpen(true);
       {suppliers.map(s => (
         <Pressable
           key={s.id}
-onPress={() => {
+onPress={async () => {
+
   const updated = materials.map(m =>
     selectedMaterialIds.includes(m.id)
-      ? { ...m, supplier_id: s.id }
+? {
+    ...m,
+    supplier_id: s.id,
+    vendor_id: null,
+    updated_at: new Date().toISOString(),
+  }
       : m
   );
 
   setMaterials(updated);
-  AsyncStorage.setItem(
+
+  await AsyncStorage.setItem(
     `job:${jobId}:materials`,
     JSON.stringify(updated)
   );
 
-  // fire & forget backend sync (non-blocking)
-  selectedMaterialIds.forEach(id => {
-    const material = materials.find(m => m.id === id);
-    if (!material) return;
+  // PATCH using UPDATED copy (not stale state)
+  const moved = updated.filter(m =>
+    selectedMaterialIds.includes(m.id)
+  );
 
-    apiFetch(`/api/materials/${material.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ supplierId: s.id }),
-    }).catch(() => {
-      enqueueSync({
+  for (const material of moved) {
+    try {
+      await apiFetch(`/api/materials/${material.id}`, {
+        method: 'PATCH',
+body: JSON.stringify({
+  supplierId: s.id,
+  vendorId: null,
+}),
+      });
+    } catch {
+      await enqueueSync({
         id: makeId(),
         type: 'material_update',
         coalesceKey: `material_update:${material.id}`,
         createdAt: nowIso(),
         payload: {
           materialId: material.id,
-          updates: { supplierId: s.id },
+          updates: {
+  supplierId: s.id,
+  vendorId: null,
+},
         },
       });
-    });
-  });
+    }
+  }
 
   flushSyncQueue();
   setSelectedMaterialIds([]);
@@ -1310,6 +1503,27 @@ onPress={() => {
     </ScrollView>
   </View>
 )}
+
+<View style={{ marginBottom: 12 }}>
+  <Pressable
+    onPress={() => setShowActiveOnly(v => !v)}
+    style={{
+      backgroundColor: showActiveOnly ? '#2563eb' : '#e5e7eb',
+      padding: 10,
+      borderRadius: 10,
+      alignSelf: 'flex-start',
+    }}
+  >
+    <Text
+      style={{
+        fontWeight: '600',
+        color: showActiveOnly ? '#fff' : '#000',
+      }}
+    >
+      {showActiveOnly ? 'Showing Active Only' : 'Show Active Only'}
+    </Text>
+  </Pressable>
+</View>
 
 {/* LIST GROUPED BY PHASE */}
 {Object.keys(materialsByPhase).map(phase => (
@@ -1337,9 +1551,26 @@ onPress={() => {
 {/* Phase Materials */}
 {expandedPhases[phase] &&
   materialsByPhase[phase].map((material: any) => (
-    <Pressable
-      key={material.id}
-      onPress={() => handleMaterialTap(material.id, phase)}
+<Pressable
+  key={material.id}
+  delayLongPress={600}
+  onLongPress={() => {
+    if (role !== 'owner' && role !== 'admin') return;
+
+    Alert.alert(
+      'Delete Material?',
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteMaterial(material.id),
+        },
+      ]
+    );
+  }}
+  onPress={() => handleMaterialTap(material.id, phase)}
       onLayout={e => {
         materialPositions.current[material.id] = e.nativeEvent.layout.y;
       }}
@@ -1383,10 +1614,6 @@ onPress={() => {
   <Text style={styles.itemTitle}>
     {material.item_name}
   </Text>
-
-  <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
-  Double tap to collapse section
-</Text>
 
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
@@ -1449,12 +1676,22 @@ onPress={() => {
 
 {/* Supplier Name */}
 <Text style={styles.meta}>
-  Supplier: {supplierMap[material.supplier_id]?.name || '—'}
+  Supplier: {
+  material.vendor_id
+    ? vendorMap[material.vendor_id]?.name
+    : supplierMap[material.supplier_id]?.name
+  || '—'
+}
 </Text>
 
 {/* Qty */}
 <Text style={styles.meta}>
   Qty: {material.qty_needed ?? 0}
+</Text>
+  <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
+  {role === 'owner' || role === 'admin'
+  ? 'Double tap to collapse section – Hold to delete'
+  : 'Double tap to collapse section'}
 </Text>
 </View>
 
@@ -1624,29 +1861,43 @@ onPressOut={() => {
     {expandedSuppliers.__internal && (
       <View style={{ marginTop: 10 }}>
         {internalMaterials.map((material: any) => (
-  <View
+<Pressable
   key={material.id}
-  onLayout={e => {
-    materialPositions.current[material.id] = e.nativeEvent.layout.y;
+  delayLongPress={600}
+  onLongPress={() => {
+    if (role !== 'owner' && role !== 'admin') return;
+
+    Alert.alert(
+      'Delete Material?',
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteMaterial(material.id),
+        },
+      ]
+    );
   }}
-style={[
-  styles.card,
-  highlightedMaterial === material.id && {
-    borderWidth: 2,
-    borderColor: '#2563eb',
-  },
-isStorageOrdered(material) && {
-  backgroundColor: '#dcfce7',
-}
+  onLayout={e => {
+    materialPositions.current[material.id] =
+      e.nativeEvent.layout.y;
+  }}
+  style={[
+    styles.card,
+    highlightedMaterial === material.id && {
+      borderWidth: 2,
+      borderColor: '#2563eb',
+    },
+    isStorageOrdered(material) && {
+      backgroundColor: '#dcfce7',
+    },
   ]}
 >
             <Text style={styles.itemTitle}>
               {material.item_name}
             </Text>
-
-            <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
-  Double tap to collapse section
-</Text>
 
 {isStorageOrdered(material) && (
   <View style={{ marginTop: 4 }}>
@@ -1716,7 +1967,7 @@ Pulled From Storage: {
             <Text style={styles.meta}>
               Job: {jobName || jobId}
             </Text>
-          </View>
+          </Pressable>
         ))}
       </View>
     )}
@@ -1732,8 +1983,11 @@ Pulled From Storage: {
     </Text>
 
     {activeSupplierIds.map((supplierId) => {
-      const supplier = supplierMap[supplierId];
-      if (!supplier) return null;
+const supplier =
+  supplierMap[supplierId] ||
+  vendorMap[supplierId];
+
+if (!supplier) return null;
 
       const supplierMaterials = materialsBySupplier[supplierId];
       const isExpanded = expandedSuppliers[supplierId];
@@ -1763,10 +2017,37 @@ Pulled From Storage: {
           {/* Bucket Contents */}
           {isExpanded && (
             <View style={{ marginTop: 10 }}>
-              {supplierMaterials.map((material: any) => (
+{supplierMaterials.map((material: any) => (
 <Pressable
   key={material.id}
-  onPress={() => handleSupplierMaterialTap(material.id, supplierId)}
+  delayLongPress={600}
+  onLongPress={() => {
+    if (role !== 'owner' && role !== 'admin') return;
+
+    Alert.alert(
+      'Delete Material?',
+      'This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => deleteMaterial(material.id),
+        },
+      ]
+    );
+  }}
+  onPress={() => {
+    if (editMode) {
+      setSelectedMaterialIds(prev =>
+        prev.includes(material.id)
+          ? prev.filter(id => id !== material.id)
+          : [...prev, material.id]
+      );
+    } else {
+      handleSupplierMaterialTap(material.id, supplierId);
+    }
+  }}
   onLayout={e => {
     materialPositions.current[material.id] = e.nativeEvent.layout.y;
   }}
@@ -1776,18 +2057,20 @@ style={[
     borderWidth: 2,
     borderColor: '#2563eb',
   },
-isPhaseOrdered(material) && {
-  backgroundColor: '#dcfce7',
-}
-  ]}
+  isPhaseOrdered(material) && {
+    backgroundColor: '#dcfce7',
+  },
+  editMode &&
+  selectedMaterialIds.includes(material.id) && {
+    borderWidth: 2,
+    borderColor: '#2563eb',
+  }
+]}
 >
                   <Text style={styles.itemTitle}>
                     {material.item_name}
                   </Text>
 
-                  <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
-  Double tap to collapse section
-</Text>
 
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
@@ -1860,6 +2143,11 @@ await Linking.openURL(downloaded);
                   <Text style={styles.meta}>
                     On-Hand: {material.qty_on_hand_applied ?? 0}
                   </Text>
+                    <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
+  {role === 'owner' || role === 'admin'
+  ? 'Double tap to collapse section – Hold to delete'
+  : 'Double tap to collapse section'}
+</Text>
                 </Pressable>
               ))}
             </View>
@@ -1894,9 +2182,13 @@ await Linking.openURL(downloaded);
       }}
       style={styles.addMaterialButton}
     >
-      <Text style={{ color: '#fff', fontWeight: '700' }}>
-        Add Material
-      </Text>
+<Text style={{ color: '#fff', fontWeight: '700' }}>
+  {newVendorId
+    ? `Add Material – Vendor: ${vendorMap[newVendorId]?.name ?? ''}`
+    : newSupplierId
+      ? `Add Material – Supplier: ${supplierMap[newSupplierId]?.name ?? ''}`
+      : 'Add Material'}
+</Text>
     </Pressable>
   </View>
   )}

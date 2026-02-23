@@ -46,24 +46,35 @@ export default function StorageSettingsScreen() {
     try {
       const id = supplier?.id ?? makeId();
 
-      await apiFetch('/api/suppliers', {
-        method: 'POST',
-        body: JSON.stringify({
-          id,
-          name: 'Storage',
-          isInternal: true,
-          contacts: email
-            ? [
-                {
-                  id: makeId(),
-                  type: 'email',
-                  label: 'Orders',
-                  value: email,
-                },
-              ]
-            : [],
-        }),
-      });
+const payload = {
+  id,
+  name: 'Storage',
+  isInternal: true,
+  contacts: email
+    ? [
+        {
+          id: makeId(),
+          type: 'email',
+          label: 'Orders',
+          value: email,
+        },
+      ]
+    : [],
+};
+
+if (supplier?.id) {
+  // update existing internal supplier
+  await apiFetch(`/api/suppliers/${supplier.id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+} else {
+  // create if missing
+  await apiFetch('/api/suppliers', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
 
       Alert.alert('Saved');
       loadInternalSupplier();

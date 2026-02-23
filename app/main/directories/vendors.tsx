@@ -12,6 +12,7 @@ import { useState, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
+import { Stack } from 'expo-router';
 
 type Contact = {
   id: string;
@@ -235,9 +236,19 @@ flushSyncQueue();
     );
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <Text style={styles.title}>Vendors</Text>
+return (
+  <>
+    <Stack.Screen
+      options={{
+        title: 'Vendors',
+        headerShadowVisible: false,
+      }}
+    />
+
+    <SafeAreaView
+      style={styles.container}
+      edges={['left','right','bottom']}
+    >
 
       <View style={styles.addRow}>
         <TextInput
@@ -254,19 +265,32 @@ flushSyncQueue();
       <ScrollView>
         {vendors.map(vendor => (
           <View key={vendor.id} style={styles.card}>
-            <Pressable
-              onPress={() =>
-                setExpanded(prev =>
-                  prev === vendor.id
-                    ? null
-                    : vendor.id
-                )
-              }
-            >
-              <Text style={styles.name}>
-                {vendor.name}
-              </Text>
-            </Pressable>
+<Pressable
+  onPress={() =>
+    setExpanded(prev =>
+      prev === vendor.id
+        ? null
+        : vendor.id
+    )
+  }
+>
+  <Text style={styles.name}>
+    {vendor.name}
+  </Text>
+
+{expanded !== vendor.id && (
+  <Text
+    style={{
+      fontSize: 12,
+      opacity: 0.5,
+      marginTop: 4,
+    }}
+  >
+    Tap to edit vendor details
+  </Text>
+)}
+
+</Pressable>
 
             {expanded === vendor.id && (
               <View style={{ marginTop: 10 }}>
@@ -328,6 +352,7 @@ flushSyncQueue();
         ))}
       </ScrollView>
     </SafeAreaView>
+     </>
   );
 }
 
