@@ -11,21 +11,42 @@ router.use(requireAuthWithTenant);
 /**
  * ======================================
  * GET /api/scheduled-tasks
+ * Supports optional ?jobId=
  * ======================================
  */
 router.get("/", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
+  const jobId = typeof req.query.jobId === "string"
+    ? req.query.jobId.trim()
+    : null;
 
   try {
-    const result = await pool.query(
-      `
-      SELECT *
-      FROM scheduled_tasks
-      WHERE tenant_id = $1
-      ORDER BY scheduled_at ASC
-      `,
-      [tenantId]
-    );
+    let result;
+
+    if (jobId) {
+      // 🔒 Scoped to specific job
+      result = await pool.query(
+        `
+        SELECT *
+        FROM scheduled_tasks
+        WHERE tenant_id = $1
+          AND job_id = $2
+        ORDER BY scheduled_at ASC
+        `,
+        [tenantId, jobId]
+      );
+    } else {
+      // 🌎 Return all tasks for tenant (main scheduler)
+      result = await pool.query(
+        `
+        SELECT *
+        FROM scheduled_tasks
+        WHERE tenant_id = $1
+        ORDER BY scheduled_at ASC
+        `,
+        [tenantId]
+      );
+    }
 
     res.json({ tasks: result.rows });
   } catch (err) {
