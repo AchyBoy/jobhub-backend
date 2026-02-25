@@ -88,6 +88,8 @@ const [phasePickerForNote, setPhasePickerForNote] =
 const [highlightedNote, setHighlightedNote] = useState<string | null>(null);
   const [jobName, setJobName] = useState<string>('');
   const scrollRef = useRef<ScrollView>(null);
+  const [pendingCompletion, setPendingCompletion] =
+  useState<Record<string, any>>({});
 const notePositions = useRef<Record<string, number>>({});
 const lastTapRef = useRef<Record<string, number>>({});
 const [searchQuery, setSearchQuery] = useState('');
@@ -188,10 +190,15 @@ const [saveStateByNote, setSaveStateByNote] =
 
 const [phases, setPhases] = useState<string[]>([]);
 const [currentPhase, setCurrentPhase] = useState<string>('');
-const [expandedPhase, setExpandedPhase] = useState<string | null>(null);
+const [expandedPhases, setExpandedPhases] = useState<Record<string, boolean>>({});
 const [crewViewPhases, setCrewViewPhases] = useState<string[]>([]);
 
-const allPhases = phases;
+const allPhases = [...phases].sort((a, b) =>
+  a.localeCompare(b, undefined, {
+    numeric: true,
+    sensitivity: 'base',
+  })
+);
 
 
 function buildCrewUrl(
@@ -239,6 +246,12 @@ function sendCrewLink(
 }
 
 async function addNote(text: string) {
+
+    // Phase is "active" if it already has any non-blank note
+  // (i.e. someone started work / phase is underway)
+  const phaseIsActive = notes.some(
+    n => n.phase === currentPhase && n.status !== 'blank'
+  );
   const newNote: JobNote = {
     id: Date.now().toString(),
     phase: currentPhase,
@@ -251,7 +264,8 @@ async function addNote(text: string) {
     // legacy compatibility
     text,
 
-    status: 'incomplete',
+        status: phaseIsActive ? 'incomplete' : 'blank',
+
     createdAt: new Date().toISOString(),
   };
 
@@ -363,7 +377,10 @@ async function loadPhases() {
 
     if (parsed.length && !currentPhase) {
       setCurrentPhase(parsed[0]);
-      setExpandedPhase(parsed[0]);
+      setExpandedPhases(prev => ({
+  ...prev,
+  [parsed[0]]: true,
+}));
     }
   }
 
@@ -376,7 +393,10 @@ async function loadPhases() {
 
     if (remote.length && !currentPhase) {
       setCurrentPhase(remote[0]);
-      setExpandedPhase(remote[0]);
+      setExpandedPhases(prev => ({
+  ...prev,
+  [remote[0]]: true,
+}));
     }
   }
 }
@@ -441,24 +461,78 @@ const updated: JobNote[] = notes.map(n =>    n.id === noteId
 await syncNotesToBackend(id, updated);
 }
 
-async function markOfficeComplete(noteId: string) {
-const updated: JobNote[] = notes.map(n =>    n.id === noteId
+function triggerCompleteWithUndo(noteId: string) {
+  if (!id) return;
+  const jobId = id;
+
+  const original = notes.find(n => n.id === noteId);
+  if (!original) return;
+
+  // 1️⃣ Optimistic UI: mark visually complete but DO NOT change status yet
+  const optimistic: JobNote[] = notes.map(n =>
+    n.id === noteId
       ? {
           ...n,
-          status: 'complete',
           officeCompletedAt: new Date().toISOString(),
         }
       : n
   );
 
-  setNotes(updated);
+  setNotes(optimistic);
 
-  await AsyncStorage.setItem(
-    `job:${id}:notes`,
-    JSON.stringify(updated)
+  // 2️⃣ Start undo timer
+  const timer = setTimeout(async () => {
+    // 3️⃣ Finalize: now actually move to completed bucket
+    const finalized: JobNote[] = optimistic.map(n =>
+      n.id === noteId
+        ? {
+            ...n,
+            status: 'complete',
+          }
+        : n
+    );
+
+    setNotes(finalized);
+
+    await AsyncStorage.setItem(
+      `job:${jobId}:notes`,
+      JSON.stringify(finalized)
+    );
+
+    await syncNotesToBackend(jobId, finalized);
+
+    setPendingCompletion(prev => {
+      const { [noteId]: _, ...rest } = prev;
+      return rest;
+    });
+  }, 3000);
+
+  // 4️⃣ Store undo state
+  setPendingCompletion(prev => ({
+    ...prev,
+    [noteId]: {
+      original,
+      timer,
+    },
+  }));
+}
+
+function undoCompletion(noteId: string) {
+  const pending = pendingCompletion[noteId];
+  if (!pending) return;
+
+  clearTimeout(pending.timer);
+
+  const restored = notes.map(n =>
+    n.id === noteId ? pending.original : n
   );
-  if (!id) return;
-await syncNotesToBackend(id, updated);
+
+  setNotes(restored);
+
+  setPendingCompletion(prev => {
+    const { [noteId]: _, ...rest } = prev;
+    return rest;
+  });
 }
 
 async function markOfficeIncomplete(noteId: string) {
@@ -483,6 +557,30 @@ const updated: JobNote[] = notes.map(n =>    n.id === noteId
 await syncNotesToBackend(id, updated);
 }
 
+async function markOfficeBlank(noteId: string) {
+  const updated: JobNote[] = notes.map(n =>
+    n.id === noteId
+      ? {
+          ...n,
+          status: 'blank',
+          officeCompletedAt: undefined,
+          markedCompleteBy: undefined,
+          crewCompletedAt: undefined,
+        }
+      : n
+  );
+
+  setNotes(updated);
+
+  await AsyncStorage.setItem(
+    `job:${id}:notes`,
+    JSON.stringify(updated)
+  );
+
+  if (!id) return;
+  await syncNotesToBackend(id, updated);
+}
+
 // NOTE: when a note is moved to another phase, it should not
 // carry incomplete/complete state from the old phase.
 function resetNoteForNewPhase(note: JobNote): JobNote {
@@ -497,13 +595,31 @@ function resetNoteForNewPhase(note: JobNote): JobNote {
 
 function handleNoteTap(noteId: string, phase: string) {
   const now = Date.now();
-  const lastTap = lastTapRef.current[noteId] ?? 0;
+  const lastTap = lastTapRef.current[phase] ?? 0;
 
-  if (now - lastTap < 250) {
-    setExpandedPhase(null); // collapse entire phase
+  if (now - lastTap < 300) {
+    setExpandedPhases(prev => ({
+      ...prev,
+      [phase]: false,
+    }));
   }
 
-  lastTapRef.current[noteId] = now;
+  lastTapRef.current[phase] = now;
+}
+
+function handleCompletedTap(phase: string) {
+  const now = Date.now();
+  const key = `completed-${phase}`;
+  const lastTap = lastTapRef.current[key] ?? 0;
+
+  if (now - lastTap < 300) {
+    setShowCompletedByPhase(prev => ({
+      ...prev,
+      [phase]: false,
+    }));
+  }
+
+  lastTapRef.current[key] = now;
 }
 
 async function changeNotePhase(noteId: string, newPhase: string) {
@@ -582,17 +698,17 @@ await syncNotesToBackend(id, updated);
       }}
     />
 
-    <Pressable
-      onPress={() => {
-        Keyboard.dismiss();
-        setSearchFocused(false);
-      }}
-      style={{ marginLeft: 8 }}
-    >
-      <Text style={{ fontWeight: '600', color: '#2563eb' }}>
-        Done
-      </Text>
-    </Pressable>
+<Pressable
+  onPress={() => {
+    setSearchQuery('');
+    Keyboard.dismiss();
+  }}
+  style={{ marginLeft: 8 }}
+>
+  <Text style={{ fontWeight: '600', color: '#2563eb' }}>
+    Clear
+  </Text>
+</Pressable>
   </View>
 
   {searchQuery.length > 0 && (
@@ -622,7 +738,10 @@ await syncNotesToBackend(id, updated);
             <Pressable
               key={n.id}
               onPress={() => {
-                setExpandedPhase(n.phase);
+                setExpandedPhases(prev => ({
+  ...prev,
+  [n.phase]: true,
+}));
                 setSearchQuery('');
                 Keyboard.dismiss();
                 setHighlightedNote(n.id);
@@ -667,15 +786,14 @@ await syncNotesToBackend(id, updated);
 {/* CONDITIONAL ADD NOTE BAR */}
 {showAddItem && (
   <AddNoteBar
-    phases={allPhases}
-    phase={currentPhase}
-    onPhaseChange={setCurrentPhase}
-    onAdd={(text) => {
-      addNote(text);
-      setShowAddItem(false);
-      Keyboard.dismiss();
-    }}
-  />
+  phases={allPhases}
+  phase={currentPhase}
+  onPhaseChange={setCurrentPhase}
+  onAdd={(text) => {
+    addNote(text);
+    // DO NOT close
+  }}
+/>
 )}
 
  <ScrollView
@@ -683,7 +801,7 @@ await syncNotesToBackend(id, updated);
   style={{ flex: 1 }}
   contentContainerStyle={{ paddingBottom: 80 }}
   showsVerticalScrollIndicator={false}
-  keyboardShouldPersistTaps="handled"
+  keyboardShouldPersistTaps="always"
 >
 
     {/* PHASE ACCORDION */}
@@ -694,31 +812,51 @@ await syncNotesToBackend(id, updated);
 // activeNotes includes BOTH 'blank' and 'incomplete' items.
 // 'blank' means the phase has not started yet (e.g. moved from another phase).
 // UI intentionally shows both together for now.
-  const activeNotes = phaseNotes
-    .filter(n => n.status !== 'complete')
-    .sort((a, b) => {
-      if (!!a.crewCompletedAt === !!b.crewCompletedAt) return 0;
-      return a.crewCompletedAt ? 1 : -1;
-    });
+const activeNotes = phaseNotes
+  .filter(n => n.status !== 'complete')
+  .sort((a, b) => {
+    // Primary: numeric id ascending
+    const aId = Number(a.id);
+    const bId = Number(b.id);
 
-  const officeCompleted = phaseNotes.filter(
-    n => n.status === 'complete'
-  );
+    if (!isNaN(aId) && !isNaN(bId)) {
+      return aId - bId;
+    }
+
+    // Fallback: string compare
+    return a.id.localeCompare(b.id);
+  });
+
+const officeCompleted = phaseNotes
+  .filter(n => n.status === 'complete')
+  .sort((a, b) => {
+    const aId = Number(a.id);
+    const bId = Number(b.id);
+
+    if (!isNaN(aId) && !isNaN(bId)) {
+      return aId - bId;
+    }
+
+    return a.id.localeCompare(b.id);
+  });
 
   return (
     <View key={phase} style={{ marginBottom: 24 }}>
       {/* Phase Header */}
       <Pressable
-        onPress={() =>
-  setExpandedPhase(p => (p === phase ? null : phase))
-}
+onPress={() => {
+  setExpandedPhases(prev => ({
+    ...prev,
+    [phase]: true,
+  }));
+}}
       >
 <Text style={styles.sectionTitle}>
-  {expandedPhase === phase ? '▼' : '▶'} {phase}
+  {expandedPhases[phase] ? '▼' : '▶'} {phase}
 </Text>
       </Pressable>
 
-      {expandedPhase === phase && (
+      {expandedPhases[phase] && (
         <View style={{ gap: 12 }}>
           {/* ACTIVE / CREW NOTES */}
           {activeNotes.map(note => (
@@ -745,9 +883,15 @@ onLongPress={() => {
   onLayout={e => {
     notePositions.current[note.id] = e.nativeEvent.layout.y;
   }}
-  style={[
-    styles.noteCard,
-  note.crewCompletedAt && { backgroundColor: '#dcfce7' },
+style={[
+  styles.noteCard,
+  note.status === 'incomplete' && {
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  },
+  (note.crewCompletedAt || note.status === 'complete') && {
+  backgroundColor: '#dcfce7',
+},
   highlightedNote === note.id && {
     borderWidth: 2,
     borderColor: '#2563eb',
@@ -756,14 +900,17 @@ onLongPress={() => {
             >
 {/* NOTE A — primary instruction */}
 {editMode ? (
-  <TextInput
-    value={note.noteA ?? ''}
-    onChangeText={text =>
-      updateNoteField(note.id, 'noteA', text)
-    }
-    style={styles.noteText}
-    multiline
-  />
+<TextInput
+  value={note.noteA ?? ''}
+  onChangeText={text =>
+    updateNoteField(note.id, 'noteA', text)
+  }
+  style={styles.noteText}
+  multiline
+  blurOnSubmit={true}
+  returnKeyType="done"
+  onSubmitEditing={() => Keyboard.dismiss()}
+/>
 ) : (
   <Text style={styles.noteText}>
     {note.noteA ?? note.text}
@@ -772,15 +919,18 @@ onLongPress={() => {
 
 {/* NOTE B — clarification / context */}
 {editMode ? (
-  <TextInput
-    value={note.noteB ?? ''}
-    onChangeText={text =>
-      updateNoteField(note.id, 'noteB', text)
-    }
-    placeholder="Add clarification…"
-    style={styles.noteSubText}
-    multiline
-  />
+<TextInput
+  value={note.noteB ?? ''}
+  onChangeText={text =>
+    updateNoteField(note.id, 'noteB', text)
+  }
+  placeholder="Add clarification…"
+  style={styles.noteSubText}
+  multiline
+  blurOnSubmit={true}
+  returnKeyType="done"
+  onSubmitEditing={() => Keyboard.dismiss()}
+/>
 ) : note.noteB ? (
   <Text style={styles.noteSubText}>
     {note.noteB}
@@ -812,6 +962,33 @@ onLongPress={() => {
   ) : null}
 </View>
 
+{pendingCompletion[note.id] && (
+  <Pressable
+    onPress={(e) => {
+      e.stopPropagation();
+      undoCompletion(note.id);
+    }}
+    style={{
+      marginTop: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      backgroundColor: '#dcfce7',
+      alignSelf: 'flex-start',
+    }}
+  >
+    <Text
+      style={{
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#15803d',
+      }}
+    >
+      Completing… Tap to Undo
+    </Text>
+  </Pressable>
+)}
+
               {/* NOTE: office-only action to move an item to another phase */}
 
 {editMode && (
@@ -828,6 +1005,17 @@ onLongPress={() => {
         Change Phase
       </Text>
     </Pressable>
+
+{editMode && note.status !== 'blank' && (
+  <Pressable
+    style={[styles.action, { marginTop: 6 }]}
+    onPress={() => markOfficeBlank(note.id)}
+  >
+    <Text style={styles.actionText}>
+      Reset to blank
+    </Text>
+  </Pressable>
+)}
 
     {phasePickerForNote === note.id && (
       <View style={styles.phaseDropdown}>
@@ -878,7 +1066,10 @@ onLongPress={() => {
 {editMode && (
   <Pressable
     style={[styles.action, { marginTop: 6 }]}
-    onPress={() => markOfficeComplete(note.id)}
+    onPress={(e) => {
+  e.stopPropagation();
+  triggerCompleteWithUndo(note.id);
+}}
   >
     <Text style={styles.actionText}>
       Office mark complete
@@ -900,9 +1091,14 @@ onLongPress={() => {
           }))
         }
       >
-        <Text style={styles.sectionTitle}>
-          {showCompletedByPhase[phase] ? '▼' : '▶'} Completed
-        </Text>
+<Text
+  style={[
+    styles.sectionTitle,
+    { marginLeft: 12, fontSize: 16 }
+  ]}
+>
+  {showCompletedByPhase[phase] ? '▼' : '▶'} Completed: {phase}
+</Text>
       </Pressable>
 
       {showCompletedByPhase[phase] &&
@@ -926,7 +1122,7 @@ onLongPress={() => {
     ]
   );
 }}
-  onPress={() => handleNoteTap(note.id, phase)}
+  onPress={() => handleCompletedTap(phase)}
   onLayout={e => {
     notePositions.current[note.id] = e.nativeEvent.layout.y;
   }}
@@ -935,16 +1131,43 @@ onLongPress={() => {
               { opacity: 0.6 },
             ]}
           >
+
+          {note.status === 'incomplete' && (
+  <View
+    style={{
+      alignSelf: 'flex-start',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 999,
+      backgroundColor: '#fef3c7',
+      marginBottom: 6,
+    }}
+  >
+    <Text
+      style={{
+        fontSize: 11,
+        fontWeight: '700',
+        color: '#b45309',
+        letterSpacing: 0.3,
+      }}
+    >
+      INCOMPLETE
+    </Text>
+  </View>
+)}
             {/* NOTE A — primary instruction */}
             {editMode ? (
-              <TextInput
-                value={note.noteA ?? ''}
-                onChangeText={text =>
-                  updateNoteField(note.id, 'noteA', text)
-                }
-                style={styles.noteText}
-                multiline
-              />
+<TextInput
+  value={note.noteA ?? ''}
+  onChangeText={text =>
+    updateNoteField(note.id, 'noteA', text)
+  }
+  style={styles.noteText}
+  multiline
+  blurOnSubmit={true}
+  returnKeyType="done"
+  onSubmitEditing={() => Keyboard.dismiss()}
+/>
             ) : (
               <Text style={styles.noteText}>
                 {note.noteA ?? note.text}
@@ -953,15 +1176,18 @@ onLongPress={() => {
 
             {/* NOTE B — clarification / context */}
             {editMode ? (
-              <TextInput
-                value={note.noteB ?? ''}
-                onChangeText={text =>
-                  updateNoteField(note.id, 'noteB', text)
-                }
-                placeholder="Add clarification…"
-                style={styles.noteSubText}
-                multiline
-              />
+<TextInput
+  value={note.noteB ?? ''}
+  onChangeText={text =>
+    updateNoteField(note.id, 'noteB', text)
+  }
+  placeholder="Add clarification…"
+  style={styles.noteSubText}
+  multiline
+  blurOnSubmit={true}
+  returnKeyType="done"
+  onSubmitEditing={() => Keyboard.dismiss()}
+/>
             ) : note.noteB ? (
               <Text style={styles.noteSubText}>
                 {note.noteB}
@@ -991,6 +1217,33 @@ onLongPress={() => {
               ) : null}
             </View>
 
+            {pendingCompletion[note.id] && (
+  <Pressable
+    onPress={(e) => {
+      e.stopPropagation();
+      undoCompletion(note.id);
+    }}
+    style={{
+      marginTop: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      borderRadius: 999,
+      backgroundColor: '#dcfce7',
+      alignSelf: 'flex-start',
+    }}
+  >
+    <Text
+      style={{
+        fontSize: 12,
+        fontWeight: '700',
+        color: '#15803d',
+      }}
+    >
+      Completing… Tap to Undo
+    </Text>
+  </Pressable>
+)}
+
             {note.officeCompletedAt && (
               <Text style={styles.meta}>
                 Office completed:{' '}
@@ -1009,6 +1262,17 @@ onLongPress={() => {
   >
     <Text style={styles.actionText}>
       Mark incomplete
+    </Text>
+  </Pressable>
+)}
+
+{editMode && (
+  <Pressable
+    style={styles.action}
+    onPress={() => markOfficeBlank(note.id)}
+  >
+    <Text style={styles.actionText}>
+      Reset to blank
     </Text>
   </Pressable>
 )}

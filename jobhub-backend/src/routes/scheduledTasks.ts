@@ -3,6 +3,7 @@ import { Router } from "express";
 import { requireAuthWithTenant } from "../middleware/requireAuthWithTenant";
 import { pool } from "../db/postgres";
 import { randomUUID } from "crypto";
+const DEV_BYPASS_TENANT = "tenant_a2688515-022c-4981-ace6-416b16e86abd";
 
 const router = Router();
 
@@ -16,12 +17,31 @@ router.use(requireAuthWithTenant);
  */
 router.get("/", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
+
   const jobId = typeof req.query.jobId === "string"
     ? req.query.jobId.trim()
     : null;
 
   try {
-    let result;
+
+  // 🔄 Auto-activate notes when task time arrives
+  await pool.query(
+    `
+    UPDATE notes n
+    SET status = 'incomplete'
+    FROM scheduled_tasks st
+    WHERE st.tenant_id = $1
+      AND st.status = 'scheduled'
+      AND st.scheduled_at <= NOW()
+      AND st.job_id = n.job_id
+      AND st.phase = n.phase
+      AND n.tenant_id = $1
+      AND n.status != 'complete'
+    `,
+    [tenantId]
+  );
+
+  let result;
 
     if (jobId) {
       // 🔒 Scoped to specific job
@@ -107,6 +127,43 @@ router.post("/", async (req: any, res) => {
 
     const id = randomUUID();
 
+    // ======================================
+// 🔄 Phase Reset Automation (Paywalled)
+// ======================================
+
+const isBypassTenant = tenantId === DEV_BYPASS_TENANT;
+
+// TODO: Replace with real billing check later
+const isPaidTenant = false;
+
+// Only run automation if:
+// - bypass tenant (you)
+// - OR paid tenant in future
+if (isBypassTenant || isPaidTenant) {
+  try {
+    await pool.query(
+      `
+      UPDATE notes
+      SET
+        marked_complete_by = NULL,
+        crew_completed_at = NULL
+      WHERE job_id = $1
+        AND tenant_id = $2
+        AND phase = $3
+        AND (
+          marked_complete_by IS NULL
+          OR marked_complete_by != 'office'
+        )
+      `,
+      [jobId, tenantId, phase]
+    );
+
+    console.log("🔄 Phase reset executed");
+  } catch (err) {
+    console.error("Phase reset failed:", err);
+  }
+}
+
     const result = await pool.query(
       `
       INSERT INTO scheduled_tasks (
@@ -152,6 +209,25 @@ router.delete("/:id", async (req: any, res) => {
   const { id } = req.params;
 
   try {
+
+        // 1️⃣ Get task info before deleting
+    const existing = await pool.query(
+      `
+      SELECT job_id, phase
+      FROM scheduled_tasks
+      WHERE id = $1
+        AND tenant_id = $2
+      `,
+      [id, tenantId]
+    );
+
+    if (existing.rowCount === 0) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    const { job_id, phase } = existing.rows[0];
+
+    // 2️⃣ Delete the task
     await pool.query(
       `
       DELETE FROM scheduled_tasks
@@ -159,6 +235,19 @@ router.delete("/:id", async (req: any, res) => {
         AND tenant_id = $2
       `,
       [id, tenantId]
+    );
+
+        // 3️⃣ Reset notes for that job/phase (NOT completed notes)
+    await pool.query(
+      `
+      UPDATE notes
+      SET status = 'blank'
+      WHERE tenant_id = $1
+        AND job_id = $2
+        AND phase = $3
+        AND status != 'complete'
+      `,
+      [tenantId, job_id, phase]
     );
 
     res.json({ success: true });

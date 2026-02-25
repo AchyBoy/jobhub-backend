@@ -77,13 +77,24 @@ async function loadAssignments() {
       scheduledAt: t.scheduledAt ?? t.scheduled_at,
     }));
 
-    // keep only latest per phase
-    const byPhase: Record<string, any> = {};
-    normalizedRaw.forEach(t => {
-      byPhase[t.phase] = t;
-    });
+// keep only latest per phase
+const byPhase: Record<string, {
+  id: string;
+  crewId: string;
+  phase: string;
+  scheduledAt: string;
+}> = {};
 
-    const normalized = Object.values(byPhase);
+normalizedRaw.forEach((t: {
+  id: string;
+  crewId: string;
+  phase: string;
+  scheduledAt: string;
+}) => {
+  byPhase[t.phase] = t;
+});
+
+const normalized = Object.values(byPhase);
 
     setAssignments(normalized);
 
@@ -149,6 +160,72 @@ try {
 }
 
   flushSyncQueue();
+}
+
+async function removeAssignment(phase: string) {
+  if (!id) return;
+
+  const existing = assignments.find(a => a.phase === phase);
+  if (!existing) return;
+
+  Alert.alert(
+    'Remove Crew?',
+    'This will also remove the scheduled task for this phase.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: async () => {
+          // 1️⃣ Local assignment removal
+          const updatedAssignments = assignments.filter(
+            a => a.phase !== phase
+          );
+
+          setAssignments(updatedAssignments);
+
+          await AsyncStorage.setItem(
+            `job:${id}:crews`,
+            JSON.stringify(updatedAssignments)
+          );
+
+          // 2️⃣ Remove from local scheduled_tasks cache
+          const scheduleLocal = await AsyncStorage.getItem('scheduled_tasks_v1');
+          if (scheduleLocal) {
+            const parsed = JSON.parse(scheduleLocal);
+            const updatedSchedule = parsed.filter(
+              (t: any) => t.id !== existing.id
+            );
+
+            await AsyncStorage.setItem(
+              'scheduled_tasks_v1',
+              JSON.stringify(updatedSchedule)
+            );
+          }
+
+          // 3️⃣ Backend delete
+          try {
+            await apiFetch(
+              `/api/scheduled-tasks/${existing.id}`,
+              { method: 'DELETE' }
+            );
+          } catch {
+            await enqueueSync({
+              id: makeId(),
+              type: 'scheduled_task_delete',
+              coalesceKey: `scheduled_task_delete:${existing.id}`,
+              createdAt: nowIso(),
+              payload: {
+                taskId: existing.id,
+              },
+            });
+          }
+
+          flushSyncQueue();
+        },
+      },
+    ]
+  );
 }
 
     return (
@@ -233,33 +310,70 @@ try {
 
 {phaseAssignments.length > 0 && (
   <View style={{ marginTop: 8 }}>
-    <Pressable
-      onPress={() =>
-        setEditingPhase(prev =>
-          prev === phase ? null : phase
-        )
-      }
-      style={{ position: 'absolute', top: 0, right: 0 }}
+    <View
+      style={{
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+      }}
     >
-      <Text style={{ fontSize: 12, color: '#2563eb' }}>
-        {editingPhase === phase ? 'Done' : 'Edit'}
-      </Text>
-    </Pressable>
-
-    {editingPhase === phase &&
-      crews.map(c => (
-        <Pressable
-          key={`${phase}-edit-${c.id}`}
-          onPress={async () => {
-  await assignCrew(c.id, phase);
-  setEditingPhase(null);
-}}
+      <Pressable
+        onPress={() =>
+          setEditingPhase(prev =>
+            prev === phase ? null : phase
+          )
+        }
+        style={{
+          paddingVertical: 4,
+          paddingHorizontal: 8,
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 12,
+            color: '#2563eb',
+            fontWeight: '600',
+          }}
         >
-          <Text style={styles.assignText}>
-            Change to {c.name}
+          {editingPhase === phase ? 'Done' : 'Edit'}
+        </Text>
+      </Pressable>
+    </View>
+
+    {editingPhase === phase && (
+      <>
+        <Pressable
+          onPress={async () => {
+            await removeAssignment(phase);
+            setEditingPhase(null);
+          }}
+        >
+          <Text
+            style={{
+              marginTop: 4,
+              fontSize: 12,
+              color: 'red',
+              fontWeight: '600',
+            }}
+          >
+            Remove Crew
           </Text>
         </Pressable>
-      ))}
+
+        {crews.map(c => (
+          <Pressable
+            key={`${phase}-edit-${c.id}`}
+            onPress={async () => {
+              await assignCrew(c.id, phase);
+              setEditingPhase(null);
+            }}
+          >
+            <Text style={styles.assignText}>
+              Change to {c.name}
+            </Text>
+          </Pressable>
+        ))}
+      </>
+    )}
   </View>
 )}
             </Pressable>

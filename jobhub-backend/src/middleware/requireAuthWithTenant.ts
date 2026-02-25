@@ -42,21 +42,44 @@ const userId = userData.user.id;
 
 
 // 🔎 Load user record (for session enforcement)
-const userResult = await pool.query(
-  `
+let tenant_id: string | null = null;
+let active_session_id: string | null = null;
+let must_change_password: boolean = false;
+
+try {
+  const userResult = await pool.query(
+    `
 SELECT tenant_id, active_session_id, must_change_password
 FROM users
 WHERE id = $1
 LIMIT 1
-  `,
-  [userId]
-);
+    `,
+    [userId]
+  );
 
-if (userResult.rowCount === 0) {
-  return res.status(403).json({ error: "User record not found" });
+  if (userResult.rowCount === 0) {
+    return res.status(403).json({ error: "User record not found" });
+  }
+
+  tenant_id = userResult.rows[0].tenant_id;
+  active_session_id = userResult.rows[0].active_session_id;
+  must_change_password = userResult.rows[0].must_change_password;
+
+} catch (err) {
+  console.warn("⚠️ DB unavailable during auth — skipping session enforcement");
+
+  // Allow request to proceed but WITHOUT session enforcement
+  // This preserves offline-first behavior
+
+  (req as any).user = {
+    id: userId,
+    tenantId: null,
+    role: "offline",
+    mustChangePassword: false,
+  };
+
+  return next();
 }
-
-const { tenant_id, active_session_id, must_change_password } = userResult.rows[0];
 
 // 🔐 Read device session header
 const deviceSession = req.headers["x-device-session"] as string | undefined;
@@ -95,7 +118,11 @@ if (!active_session_id) {
   );
 } 
 
-else if (active_session_id !== deviceSession) {
+else if (
+  active_session_id &&
+  deviceSession &&
+  active_session_id !== deviceSession
+) {
   return res.status(401).json({
     error: "Another device is already logged in",
     code: "SESSION_CONFLICT"

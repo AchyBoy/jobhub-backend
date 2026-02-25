@@ -53,6 +53,13 @@ router.get("/job/:jobId", async (req, res) => {
 router.post("/job/:jobId/notes", async (req, res) => {
   const jobId = String(req.params.jobId || "").trim();
 
+    // ✅ LOG #1 — confirm route + basic request shape
+  console.log("🔥 NOTES POST HIT", {
+    jobId,
+    notesIsArray: Array.isArray(req.body?.notes),
+    notesCount: Array.isArray(req.body?.notes) ? req.body.notes.length : null,
+  });
+
   if (!jobId) {
     return res.status(400).json({ error: "Missing jobId" });
   }
@@ -61,6 +68,9 @@ router.post("/job/:jobId/notes", async (req, res) => {
   if (!Array.isArray(rawNotes)) {
     return res.status(400).json({ error: "Missing notes array" });
   }
+
+    // ✅ LOG #2 — inspect first note payload exactly as backend sees it
+  console.log("🧾 FIRST NOTE (raw)", rawNotes[0]);
 
   const client = await pool.connect();
 
@@ -86,6 +96,9 @@ if (jobResult.rowCount === 0) {
 }
 
     const tenantId = jobResult.rows[0].tenant_id;
+
+        // ✅ LOG #3 — confirm tenant resolved
+    console.log("🏷️ TENANT RESOLVED", { jobId, tenantId });
 
 for (const n of rawNotes) {
   

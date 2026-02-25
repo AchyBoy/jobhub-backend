@@ -26,22 +26,33 @@ router.get("/:jobId/supervisors", async (req: any, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `
-      SELECT
-        js.id,
-        js.supervisor_id as "supervisorId",
-        s.name as "supervisorName"
-      FROM job_supervisors js
-      JOIN supervisors s
-        ON s.id = js.supervisor_id
-        AND s.tenant_id = js.tenant_id
-      WHERE js.job_id = $1
-        AND js.tenant_id = $2
-      ORDER BY js.created_at DESC
-      `,
-      [jobId, tenantId]
-    );
+const result = await pool.query(
+  `
+  SELECT
+    js.id,
+    js.supervisor_id as "supervisorId",
+    s.name as "supervisorName",
+
+    MAX(CASE WHEN sc.type = 'phone' THEN sc.value END) as phone,
+    MAX(CASE WHEN sc.type = 'email' THEN sc.value END) as email
+
+  FROM job_supervisors js
+  JOIN supervisors s
+    ON s.id = js.supervisor_id
+    AND s.tenant_id = js.tenant_id
+
+  LEFT JOIN supervisor_contacts sc
+    ON sc.supervisor_id = s.id
+    AND sc.tenant_id = s.tenant_id
+
+  WHERE js.job_id = $1
+    AND js.tenant_id = $2
+
+  GROUP BY js.id, js.supervisor_id, s.name
+  ORDER BY js.created_at DESC
+  `,
+  [jobId, tenantId]
+);
 
     console.log("📦 Supervisors returned:", result.rows);
 

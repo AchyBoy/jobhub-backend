@@ -51,6 +51,52 @@ const [showSearch, setShowSearch] = useState(false);
 const [highlightedMaterial, setHighlightedMaterial] = useState<string | null>(null);
 const lastTapRef = useRef<Record<string, number>>({});
 const scrollRef = useRef<ScrollView>(null);
+const scrollYRef = useRef(0);
+
+// Anchor = “which item was in view”, not “what scrollY was”
+const anchorMaterialIdRef = useRef<string | null>(null);
+const anchorOffsetRef = useRef<number>(0);
+
+/**
+ * Pick the material whose layout.y is closest to (but not greater than)
+ * the current viewport “anchor line”.
+ */
+function rememberAnchor() {
+  const anchorLine = scrollYRef.current + 80; // 80px down from top feels natural
+
+  let bestId: string | null = null;
+  let bestY = -Infinity;
+
+  for (const [id, y] of Object.entries(materialPositions.current)) {
+    if (y <= anchorLine && y > bestY) {
+      bestY = y;
+      bestId = id;
+    }
+  }
+
+  anchorMaterialIdRef.current = bestId;
+  anchorOffsetRef.current = bestId ? (anchorLine - bestY) : 0;
+}
+
+function restoreAnchorSoon() {
+  const id = anchorMaterialIdRef.current;
+  if (!id) return;
+
+  // We run twice because layout often settles over 1–2 frames on iOS
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const y = materialPositions.current[id];
+      if (y == null) return;
+
+            // 👇 Simplified: anchor item near top
+      const targetY = Math.max(0, y - 20);
+      scrollRef.current?.scrollTo({ y: targetY, animated: false });
+
+      anchorMaterialIdRef.current = null;
+      anchorOffsetRef.current = 0;
+    });
+  });
+}
 const materialPositions = useRef<Record<string, number>>({});
 const [supplierMap, setSupplierMap] = useState<Record<string, any>>({});
 const [phasePickerOpen, setPhasePickerOpen] = useState(false);
@@ -61,6 +107,7 @@ const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
   const [newItemCode, setNewItemCode] = useState<string | null>(null);
+const [newQtyNeeded, setNewQtyNeeded] = useState<string>(''); // typed qty in add bar
   const [vendorPickerOpen, setVendorPickerOpen] = useState(false);
 const [showActiveOnly, setShowActiveOnly] = useState(false);
 const [addMode, setAddMode] = useState(false);
@@ -184,13 +231,29 @@ if (m.vendor_id) {
     }
   }
 
-  return {
-    materialsByPhase: byPhase,
-    materialsBySupplier: bySupplier,
-    internalMaterials: internal,
-    activeSupplierIds: Object.keys(bySupplier),
-  };
+// compute supplier activity based on qty > 0
+const activeSuppliers = Object.keys(bySupplier).filter(supplierId =>
+  bySupplier[supplierId].some((m: any) =>
+    (m.qty_needed ?? 0) > 0 ||
+    (m.qty_ordered ?? 0) > 0 ||
+    (m.qty_from_storage ?? 0) > 0 ||
+    (m.qty_on_hand_applied ?? 0) > 0
+  )
+);
+
+
+return {
+  materialsByPhase: byPhase,
+  materialsBySupplier: bySupplier,
+  internalMaterials: internal,
+  activeSupplierIds: activeSuppliers,
+};
+
 }, [materials, showActiveOnly]);
+
+const selectedSupplierHasItems =
+  !!newSupplierId &&
+  activeSupplierIds.includes(newSupplierId);
 
 useEffect(() => {
   loadMaterials();
@@ -392,7 +455,7 @@ if (!newSupplierId && !newVendorId) {
       phase: newPhase,
       supplier_id: newVendorId ? null : newSupplierId,
 vendor_id: newVendorId ?? null,
-      qty_needed: 0,
+      qty_needed: Math.max(0, parseInt(newQtyNeeded || '0', 10) || 0),
       status: 'draft',
     };
 
@@ -415,7 +478,7 @@ apiFetch('/api/materials', {
     phase: newPhase,
     supplierId: newVendorId ? null : newSupplierId,
 vendorId: newVendorId ?? null,
-    qtyNeeded: 0,
+        qtyNeeded: Math.max(0, parseInt(newQtyNeeded || '0', 10) || 0),
   }),
 }).catch(() => {
   enqueueSync({
@@ -431,7 +494,8 @@ vendorId: newVendorId ?? null,
 
     setNewName('');
     setNewItemCode(null);
-    setAddMode(false);
+    setNewQtyNeeded('');   // reset qty field
+    // ✅ keep addMode open for rapid entry
   }
 
    async function changeSupplier(material: any, supplierId: string) {
@@ -607,6 +671,10 @@ async function updateQty(material: any, delta: number) {
 }
 const holdIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 const holdDelayRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+useEffect(() => {
+  restoreAnchorSoon();
+}, [editMode]);
 
 useEffect(() => {
   return () => {
@@ -990,12 +1058,13 @@ return (
   }}
 >
   {/* Edit Mode Button */}
-  <Pressable
-    onPress={() => {
-      setEditMode(v => !v);
-      setSelectedMaterialIds([]);
-    }}
-  >
+<Pressable
+onPress={() => {
+  rememberAnchor();
+  setEditMode(v => !v);
+  setSelectedMaterialIds([]);
+}}
+>
     <Text style={{ fontWeight: '700', color: '#2563eb' }}>
       {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
     </Text>
@@ -1138,6 +1207,10 @@ return (
   ref={scrollRef}
   contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
   showsVerticalScrollIndicator={false}
+  onScroll={(e) => {
+    scrollYRef.current = e.nativeEvent.contentOffset.y;
+  }}
+  scrollEventThrottle={16}
 >
 
 {/* SELECTORS */}
@@ -1183,36 +1256,55 @@ return (
     },
   ]}
 >
-  <Text
-    style={{
-      fontWeight: '600',
-      color: newSupplierId && !newVendorId ? '#15803d' : '#000',
-    }}
-  >
-    Supplier: {
-      newSupplierId
-        ? supplierMap[newSupplierId]?.name
-        : 'Select Supplier'
-    }
-  </Text>
+<Text
+  style={{
+    fontWeight: '600',
+    color: newSupplierId && !newVendorId ? '#15803d' : '#000',
+  }}
+>
+  Supplier: {
+    newSupplierId
+      ? supplierMap[newSupplierId]?.name
+      : 'Select Supplier'
+  }
+  {selectedSupplierHasItems ? ' • Has Qty' : ''}
+</Text>
 </Pressable>
 
 {supplierPickerOpen && (
   <View style={{ marginBottom: 10 }}>
-    {suppliers.map(s => (
-      <Pressable
-        key={s.id}
-        onPress={async () => {
-          setNewSupplierId(s.id);
-          setNewVendorId(null);
-          await AsyncStorage.setItem('materials:selectedSupplier', s.id);
-          setSupplierPickerOpen(false);
-        }}
-        style={styles.selectorOption}
-      >
-        <Text>{s.name}</Text>
-      </Pressable>
-    ))}
+    {suppliers.map(s => {
+      const hasItems = activeSupplierIds.includes(s.id);
+
+      return (
+        <Pressable
+          key={s.id}
+          onPress={async () => {
+            setNewSupplierId(s.id);
+            setNewVendorId(null);
+            await AsyncStorage.setItem('materials:selectedSupplier', s.id);
+            setSupplierPickerOpen(false);
+          }}
+          style={[
+            styles.selectorOption,
+            hasItems && {
+  borderWidth: 2,
+  borderColor: '#3b82f6',
+},
+          ]}
+        >
+<Text
+  style={{
+    fontWeight: hasItems ? '600' : '400',
+    color: hasItems ? '#1e3a8a' : '#6b7280',
+  }}
+>
+  {s.name}
+  {hasItems ? ' • Has Qty' : ''}
+</Text>
+        </Pressable>
+      );
+    })}
   </View>
 )}
 
@@ -1880,10 +1972,7 @@ onPressOut={() => {
       ]
     );
   }}
-  onLayout={e => {
-    materialPositions.current[material.id] =
-      e.nativeEvent.layout.y;
-  }}
+  
   style={[
     styles.card,
     highlightedMaterial === material.id && {
@@ -2048,9 +2137,7 @@ if (!supplier) return null;
       handleSupplierMaterialTap(material.id, supplierId);
     }
   }}
-  onLayout={e => {
-    materialPositions.current[material.id] = e.nativeEvent.layout.y;
-  }}
+  
 style={[
   styles.card,
   highlightedMaterial === material.id && {
@@ -2168,20 +2255,34 @@ await Linking.openURL(downloaded);
       style={styles.input}
     />
 
-    <TextInput
-      placeholder="Item code (optional)"
-      value={newItemCode ?? ''}
-      onChangeText={setNewItemCode}
-      style={styles.input}
-    />
+    <View style={{ flexDirection: 'row', gap: 10 }}>
+      <TextInput
+        placeholder="Qty"
+        value={newQtyNeeded}
+        onChangeText={setNewQtyNeeded}
+        keyboardType="numeric"
+        style={[styles.input, { flex: 0.35 }]}
+      />
 
-    <Pressable
-      onPress={() => {
-        Keyboard.dismiss();
-        createMaterial();
-      }}
-      style={styles.addMaterialButton}
-    >
+      <TextInput
+        placeholder="Item code (optional)"
+        value={newItemCode ?? ''}
+        onChangeText={setNewItemCode}
+        style={[styles.input, { flex: 0.65 }]}
+      />
+    </View>
+
+<Pressable
+  disabled={!newName.trim()}
+  onPress={() => {
+    Keyboard.dismiss();
+    createMaterial();
+  }}
+  style={[
+    styles.addMaterialButton,
+    !newName.trim() && { opacity: 0.5 },
+  ]}
+>
 <Text style={{ color: '#fff', fontWeight: '700' }}>
   {newVendorId
     ? `Add Material – Vendor: ${vendorMap[newVendorId]?.name ?? ''}`

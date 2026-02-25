@@ -1,5 +1,5 @@
 //JobHub/app/job/[id].tsx
-import { Text, StyleSheet, Pressable, View, ScrollView, Alert } from 'react-native';
+import { Text, TextInput, StyleSheet, Pressable, View, ScrollView, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
 
@@ -9,7 +9,7 @@ import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
-
+import * as Linking from 'expo-linking';
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
 const router = useRouter();
@@ -18,17 +18,29 @@ const [jobContractor, setJobContractor] = useState<any | null>(null);
 const [jobVendor, setJobVendor] = useState<any | null>(null);
 const [jobPermitCompany, setJobPermitCompany] = useState<any | null>(null);
 const [jobInspectionCompany, setJobInspectionCompany] = useState<any | null>(null);
-
+const [role, setRole] = useState<string | null>(null);
 const [detailsExpanded, setDetailsExpanded] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
 const [crews, setCrews] = useState<any[]>([]);
 const [phases, setPhases] = useState<string[]>([]);
+const [noteSummary, setNoteSummary] = useState<{
+  incomplete: number;
+  complete: number;
+} | null>(null);
 
+const [jobName, setJobName] = useState<string>('Job');
+const [editingName, setEditingName] = useState(false);
+const [nameDraft, setNameDraft] = useState('');
 
-const jobName =
-  typeof name === 'string' && name.length > 0
-    ? name
-    : 'Job';
+    function handleCall(phone?: string | null) {
+  if (!phone) return;
+  Linking.openURL(`tel:${phone}`);
+}
+
+function handleEmail(email?: string | null) {
+  if (!email) return;
+  Linking.openURL(`mailto:${email}`);
+}
 
 async function loadCrews() {
   const local = await AsyncStorage.getItem('crews_v1');
@@ -74,13 +86,7 @@ if (local) {
       (await AsyncStorage.getItem('inspections_v1')) ?? '[]'
     ) ?? [];
 
-  setJobSupervisors(
-    (parsed.supervisors ?? [])
-      .map((id: string) =>
-        cachedSupervisors.find((s: any) => s.id === id)
-      )
-      .filter(Boolean)
-  );
+setJobSupervisors(parsed.supervisors ?? []);
 
   setJobContractor(
     parsed.contractor
@@ -149,25 +155,27 @@ const cachedSupervisors =
   ) ?? [];
 
 const hydratedSupervisors =
-  updated.supervisors
-    .map((id: string) =>
-      cachedSupervisors.find((s: any) => s.id === id)
-    )
-    .filter(Boolean);
+  (supRes.assignments ?? []).map((a: any) => ({
+    id: a.supervisorId,
+    name: a.supervisorName,
+    phone: a.phone ?? null,
+    email: a.email ?? null,
+  }));
 
 setJobSupervisors(hydratedSupervisors);
-    setJobContractor(updated.contractor);
-    setJobVendor(updated.vendor);
-    setJobPermitCompany(updated.permitCompany);
-    setJobInspectionCompany(updated.inspection);
+
+setJobContractor(conRes.contractor ?? null);
+setJobVendor(venRes.vendor ?? null);
+setJobPermitCompany(permitRes.permitCompany ?? null);
+setJobInspectionCompany(inspectionRes.inspection ?? null);
 
 await AsyncStorage.setItem(
   storageKey,
   JSON.stringify({
-    supervisors: updated.supervisors,
-contractor: updated.contractor
-  ? { id: updated.contractor.contractorId }
-  : null,
+    supervisors: hydratedSupervisors,   // 🔥 store full objects
+    contractor: updated.contractor
+      ? { id: updated.contractor.contractorId }
+      : null,
     vendor: updated.vendor
       ? { id: updated.vendor.id }
       : null,
@@ -182,6 +190,15 @@ contractor: updated.contractor
 
   } catch {
     // silent fail — offline mode
+  }
+}
+
+async function loadRole() {
+  try {
+    const res = await apiFetch('/api/tenant/me');
+    setRole(res?.role ?? null);
+  } catch {
+    setRole(null);
   }
 }
 
@@ -242,14 +259,44 @@ async function assignCrew(crewId: string, phase: string) {
   await flushSyncQueue();
 }
 
+async function loadJob() {
+  try {
+    const res = await apiFetch(`/api/job/${id}`);
+    if (res?.job?.name) {
+      setJobName(res.job.name);
+      setNameDraft(res.job.name);
+    }
+  } catch {}
+}
+
+async function loadNoteSummary() {
+  if (!id) return;
+
+  try {
+    const res = await apiFetch(`/api/job/${id}/notes`);
+    const notes = res?.notes ?? [];
+
+    const incomplete = notes.filter(
+      (n: any) => n.status === 'incomplete'
+    ).length;
+
+    const complete = notes.filter(
+      (n: any) => n.status === 'complete'
+    ).length;
+
+    setNoteSummary({ incomplete, complete });
+  } catch {}
+}
+
 useFocusEffect(
   useCallback(() => {
     if (!id) return;
-
+    loadRole();
     loadCrews();
+    loadJob();
     loadPhases();
     loadAssignments();
-
+loadNoteSummary();
     (async () => {
       await loadDefaults();
     })();
@@ -268,6 +315,89 @@ useFocusEffect(
   contentContainerStyle={{ paddingBottom: 60 }}
   showsVerticalScrollIndicator={false}
 >
+
+<View style={{ marginTop: 20, marginBottom: 10 }}>
+  {editingName ? (
+    <>
+      <TextInput
+        value={nameDraft}
+        onChangeText={setNameDraft}
+        style={{
+          borderWidth: 1,
+          borderColor: '#93c5fd',
+          borderRadius: 10,
+          padding: 10,
+          fontSize: 18,
+          fontWeight: '600',
+        }}
+      />
+
+      <View style={{ flexDirection: 'row', gap: 16, marginTop: 8 }}>
+        <Pressable
+          onPress={() => {
+            setEditingName(false);
+            setNameDraft(jobName);
+          }}
+        >
+          <Text style={{ color: '#64748b', fontWeight: '600' }}>
+            Cancel
+          </Text>
+        </Pressable>
+
+<Pressable
+  onPress={async () => {
+    if (role !== 'owner' && role !== 'admin') {
+      Alert.alert('Unauthorized');
+      return;
+    }
+
+    try {
+      await apiFetch(`/api/job/${id}/meta`, {
+        method: 'POST',
+        body: JSON.stringify({ name: nameDraft }),
+      });
+
+      setJobName(nameDraft);
+      setEditingName(false);
+    } catch {
+      Alert.alert('Error', 'Failed to update job name');
+    }
+  }}
+>
+          <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+            Save
+          </Text>
+        </Pressable>
+      </View>
+    </>
+) : (
+  role === 'owner' || role === 'admin' ? (
+<Pressable
+  onLongPress={() => setEditingName(true)}
+  delayLongPress={400}
+>
+  <Text style={{ fontSize: 24, fontWeight: '700' }}>
+    {jobName}
+  </Text>
+
+  <Text
+    style={{
+      fontSize: 12,
+      opacity: 0.45,
+      marginTop: 4,
+      letterSpacing: 0.3,
+    }}
+  >
+    Hold to edit Job Name
+  </Text>
+</Pressable>
+  ) : (
+    <Text style={{ fontSize: 24, fontWeight: '700' }}>
+      {jobName}
+    </Text>
+  )
+)}
+</View>
 
 <Text style={styles.sub}>Job ID: {id}</Text>
 
@@ -294,11 +424,56 @@ useFocusEffect(
 {jobSupervisors.length === 0 ? (
   <Text style={styles.detailValue}>Not Assigned</Text>
 ) : (
-  jobSupervisors.map((s: any, index: number) => (
-    <Text key={`${s?.id ?? s}-${index}`} style={styles.detailValue}>
-      {s.name}
+jobSupervisors.map((s: any, index: number) => {
+  const phone =
+    s.phone ??
+    s.phoneNumber ??
+    s.mobile ??
+    null;
+
+  const email =
+    s.email ??
+    s.primaryEmail ??
+    null;
+
+  const emails =
+    Array.isArray(s.emails)
+      ? s.emails
+      : [];
+
+  return (
+    <View
+      key={`${s?.id ?? s}-${index}`}
+      style={styles.assignedPill}
+    >
+      <Text style={styles.assignedText}>
+        {s.name}
+      </Text>
+
+{phone && (
+  <Pressable onPress={() => handleCall(phone)}>
+    <Text style={[styles.assignedMeta, { color: '#2563eb' }]}>
+      {phone}
     </Text>
-  ))
+  </Pressable>
+)}
+
+{email && (
+  <Pressable onPress={() => handleEmail(email)}>
+    <Text style={[styles.assignedMeta, { color: '#2563eb' }]}>
+      {email}
+    </Text>
+  </Pressable>
+)}
+
+      {emails.map((e: string, i: number) => (
+        <Text key={i} style={styles.assignedMeta}>
+          {e}
+        </Text>
+      ))}
+    </View>
+  );
+})
 )}
       </View>
 
@@ -306,27 +481,63 @@ useFocusEffect(
         <View style={{ marginTop: 16, gap: 8 }}>
 <Text style={styles.detailLabel}>Primary Contractor</Text>
 
-<Text style={styles.detailValue}>
-  {jobContractor?.name ?? "Not Assigned"}
-</Text>
+{jobContractor?.name ? (
+  <View style={styles.assignedPill}>
+    <Text style={styles.assignedText}>
+      {jobContractor.name}
+    </Text>
+
+    {jobContractor.phone && (
+      <Text style={styles.assignedMeta}>
+        {jobContractor.phone}
+      </Text>
+    )}
+
+    {jobContractor.email && (
+      <Text style={styles.assignedMeta}>
+        {jobContractor.email}
+      </Text>
+    )}
+  </View>
+) : (
+  <Text style={styles.detailValue}>Not Assigned</Text>
+)}
 
 <Text style={styles.detailLabel}>Vendor</Text>
 
-<Text style={styles.detailValue}>
-  {jobVendor?.name ?? "Not Assigned"}
-</Text>
+{jobVendor?.name ? (
+  <View style={styles.assignedPill}>
+    <Text style={styles.assignedText}>
+      {jobVendor.name}
+    </Text>
+  </View>
+) : (
+  <Text style={styles.detailValue}>Not Assigned</Text>
+)}
 
 <Text style={styles.detailLabel}>Inspection Company</Text>
 
-<Text style={styles.detailValue}>
-  {jobInspectionCompany?.name ?? "Not Assigned"}
-</Text>
+{jobInspectionCompany?.name ? (
+  <View style={styles.assignedPill}>
+    <Text style={styles.assignedText}>
+      {jobInspectionCompany.name}
+    </Text>
+  </View>
+) : (
+  <Text style={styles.detailValue}>Not Assigned</Text>
+)}
 
 <Text style={styles.detailLabel}>Permit Company</Text>
 
-<Text style={styles.detailValue}>
-  {jobPermitCompany?.name ?? "Not Assigned"}
-</Text>
+{jobPermitCompany?.name ? (
+  <View style={styles.assignedPill}>
+    <Text style={styles.assignedText}>
+      {jobPermitCompany.name}
+    </Text>
+  </View>
+) : (
+  <Text style={styles.detailValue}>Not Assigned</Text>
+)}
 
 <Text style={[styles.detailLabel, { marginTop: 12 }]}>
   Assigned Crews (per phase)
@@ -360,23 +571,32 @@ useFocusEffect(
         phaseAssignments.map(a => {
           const crew = crews.find(c => c.id === a.crewId);
 
-          return (
-            <View
-              key={a.id}
-              style={{
-                marginTop: 4,
-                paddingVertical: 4,
-                paddingHorizontal: 8,
-                backgroundColor: '#dbeafe',
-                borderRadius: 999,
-                alignSelf: 'flex-start',
-              }}
-            >
-              <Text style={{ fontSize: 12, fontWeight: '600' }}>
-                {crew?.name ?? 'Unknown'}
-              </Text>
-            </View>
-          );
+return (
+  <View
+    key={a.id}
+    style={{
+      marginTop: 6,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      backgroundColor: '#f8fbff',
+      borderRadius: 999,
+      alignSelf: 'flex-start',
+      borderWidth: 1,
+      borderColor: '#dbeafe',
+    }}
+  >
+    <Text
+      style={{
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#1e40af',
+        letterSpacing: 0.2,
+      }}
+    >
+      {crew?.name ?? 'Unknown'}
+    </Text>
+  </View>
+);
         })
       )}
     </View>
@@ -392,15 +612,58 @@ useFocusEffect(
   <View style={styles.sectionBlock}>
 
     {/* Notes */}
-    <Pressable
-      style={styles.card}
-      onPress={() => router.push(`/job/${id}/notes`)}
-    >
-      <Text style={styles.cardTitle}>Notes</Text>
-      <Text style={styles.cardSub}>
-        General, crew, contractor, phase notes
-      </Text>
-    </Pressable>
+<Pressable
+  style={styles.card}
+  onPress={() => router.push(`/job/${id}/notes`)}
+>
+  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+    <Text style={styles.cardTitle}>Notes</Text>
+
+    {noteSummary?.incomplete ? (
+      <View
+        style={{
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          backgroundColor: '#fee2e2',
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: '700',
+            color: '#b91c1c',
+          }}
+        >
+          {noteSummary.incomplete} Incomplete
+        </Text>
+      </View>
+    ) : noteSummary?.complete ? (
+      <View
+        style={{
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          borderRadius: 999,
+          backgroundColor: '#dcfce7',
+        }}
+      >
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: '700',
+            color: '#15803d',
+          }}
+        >
+          Complete
+        </Text>
+      </View>
+    ) : null}
+  </View>
+
+  <Text style={styles.cardSub}>
+    General, crew, contractor, phase notes
+  </Text>
+</Pressable>
 
 {/* Material */}
 <Pressable
@@ -555,10 +818,32 @@ cardTitle: {
   fontWeight: '600',
 },
 
+assignedPill: {
+  marginTop: 10,
+  paddingVertical: 12,     // was 6
+  paddingHorizontal: 16,   // was 12
+  backgroundColor: '#f8fbff',
+  borderRadius: 16,        // was 999 (full pill)
+  alignSelf: 'stretch',    // allow full width instead of tiny pill
+  borderWidth: 1,
+  borderColor: '#dbeafe',
+},
+
+assignedText: {
+  fontSize: 13,
+  fontWeight: '600',
+  color: '#1e40af',             // theme-aligned blue
+  letterSpacing: 0.2,
+},
 cardSub: {
   marginTop: 4,
   fontSize: 14,
   opacity: 0.7,
+},
+assignedMeta: {
+  fontSize: 11,
+  color: '#64748b',   // soft slate gray
+  marginTop: 2,
 },
 
 disabled: {

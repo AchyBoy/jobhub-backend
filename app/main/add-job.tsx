@@ -109,32 +109,36 @@ router.push(`/job/${jobId}`);
             ]}
             onPress={() => setType('single')}
           >
-<Text
-  style={[
-    styles.toggleText,
-    type === 'single' ? styles.toggleTextActive : styles.toggleTextInactive,
-  ]}
->
-  Single Unit
-</Text>
+<View style={styles.singleToggleInner}>
+  <Text
+    style={[
+      styles.toggleText,
+      styles.singleToggleText,
+      type === 'single'
+        ? styles.toggleTextActive
+        : styles.toggleTextInactive,
+    ]}
+  >
+    Single Unit
+  </Text>
+</View>
           </Pressable>
 
-          <Pressable
-            style={[
-              styles.toggle,
-              type === 'multi' && styles.active,
-            ]}
-            onPress={() => setType('multi')}
-          >
-<Text
+<Pressable
+  disabled
   style={[
-    styles.toggleText,
-    type === 'multi' ? styles.toggleTextActive : styles.toggleTextInactive,
+    styles.toggle,
+    styles.disabledToggle,
   ]}
 >
-  Multi-Unit
-</Text>
-          </Pressable>
+  <Text style={styles.disabledToggleText}>
+    Multi-Unit
+  </Text>
+
+  <Text style={styles.comingSoonText}>
+    Coming Soon
+  </Text>
+</Pressable>
         </View>
 
 <Pressable
@@ -215,20 +219,46 @@ templateButtonText: {
     backgroundColor: '#f9fafb',
     alignItems: 'center',
   },
-  active: {
-    backgroundColor: '#1976d2',
-    borderColor: '#1976d2',
-  },
+active: {
+  backgroundColor: '#2563eb',
+  borderColor: '#2563eb',
+},
   toggleText: {
-    color: '#fff',
-    fontWeight: '600',
-  },
+  fontWeight: '600',
+},
+  disabledToggle: {
+  backgroundColor: '#f3f4f6',
+  borderColor: '#e5e7eb',
+  opacity: 0.7,
+},
+
+disabledToggleText: {
+  color: '#9ca3af',
+  fontWeight: '600',
+},
+
+comingSoonText: {
+  marginTop: 4,
+  fontSize: 18,
+  color: '#9ca3af',
+  letterSpacing: 0.3,
+},
   button: {
     backgroundColor: '#111',
     padding: 16,
     borderRadius: 8,
     alignItems: 'center',
   },
+  singleToggleInner: {
+  justifyContent: 'center',
+  alignItems: 'center',
+  minHeight: 36,
+},
+
+singleToggleText: {
+  fontSize: 18,
+  textAlign: 'center',
+},
   buttonText: {
     color: '#fff',
     fontSize: 18,

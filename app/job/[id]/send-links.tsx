@@ -97,32 +97,20 @@ async function loadJob() {
 
 // fallback to backend
 try {
-const res = await apiFetch(`/api/job/${id}`);
+  const res = await apiFetch(`/api/job/${id}`);
 
-if (res?.job?.name) {
+  if (!res?.job?.name) {
+    console.error('Failed to load job name');
+    return;
+  }
+
   setJobName(res.job.name);
 
   await AsyncStorage.setItem(
     `job:${id}:meta`,
     JSON.stringify({ name: res.job.name })
   );
-}
 
-  if (!res.ok) {
-    console.error('Failed to load job name', res.status);
-    return;
-  }
-
-  const json = await res.json();
-
-  if (json?.job?.name) {
-    setJobName(json.job.name);
-
-    await AsyncStorage.setItem(
-      `job:${id}:meta`,
-      JSON.stringify({ name: json.job.name })
-    );
-  }
 } catch (err) {
   console.error('Job load failed', err);
 }

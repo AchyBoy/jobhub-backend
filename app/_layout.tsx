@@ -212,6 +212,10 @@ return (
   })}
 />
     <Stack.Screen name="job/[id]/notes" />
+    <Stack.Screen name="job/[id]/materials" />
+<Stack.Screen name="job/[id]/send-links" />
+<Stack.Screen name="job/[id]/defaults" />
+<Stack.Screen name="job/[id]/scheduling" />
   </Stack>
 );
 }
