@@ -17,6 +17,8 @@ ios: {
   buildNumber: '8',
   infoPlist: {
     ITSAppUsesNonExemptEncryption: false,
+    NSLocationWhenInUseUsageDescription:
+      "JobHub uses your location to detect nearby jobs when you arrive on site.",
   },
 },
 
