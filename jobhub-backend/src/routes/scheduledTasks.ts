@@ -24,23 +24,6 @@ router.get("/", async (req: any, res) => {
 
   try {
 
-  // 🔄 Auto-activate notes when task time arrives
-  await pool.query(
-    `
-    UPDATE notes n
-    SET status = 'incomplete'
-    FROM scheduled_tasks st
-    WHERE st.tenant_id = $1
-      AND st.status = 'scheduled'
-      AND st.scheduled_at <= NOW()
-      AND st.job_id = n.job_id
-      AND st.phase = n.phase
-      AND n.tenant_id = $1
-      AND n.status != 'complete'
-    `,
-    [tenantId]
-  );
-
   let result;
 
     if (jobId) {

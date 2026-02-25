@@ -459,28 +459,6 @@ dateObj.setMilliseconds(0);
       }),
     });
 
-    // 🔵 Set all notes in this phase to incomplete
-try {
-  const notesRes = await apiFetch(`/api/job/${newTaskJobId}/notes`);
-  const notes = notesRes?.notes ?? [];
-
-  const updatedNotes = notes.map((n: any) => {
-    if (n.phase !== newTaskPhase) return n;
-    if (n.status === 'complete') return n;
-
-    return {
-      ...n,
-      status: 'incomplete',
-    };
-  });
-
-  await apiFetch(`/api/job/${newTaskJobId}/notes`, {
-    method: 'POST',
-    body: JSON.stringify({ notes: updatedNotes }),
-  });
-} catch (err) {
-  console.warn('Failed to mark phase notes incomplete', err);
-}
   } catch {
     await enqueueSync({
       id: makeId(),

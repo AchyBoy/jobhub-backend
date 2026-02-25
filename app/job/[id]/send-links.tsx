@@ -237,9 +237,14 @@ function sendCrewLink(crew?: { name?: string; email?: string }) {
     const url = buildCrewUrl();
     if (!url) return;
 
-    await Clipboard.setStringAsync(url);
+    // Force clean primitive string
+    const cleanUrl = decodeURIComponent(
+      encodeURI(String(url))
+    );
 
-    alert('Link copied to clipboard');
+    await Clipboard.setStringAsync(cleanUrl);
+
+    console.log('Copied clean URL:', cleanUrl);
   }}
   style={{ paddingVertical: 6 }}
 >

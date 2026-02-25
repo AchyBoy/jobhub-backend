@@ -17,6 +17,7 @@ import tenantRoutes from "./routes/tenant";
 import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
 import pushRoutes from "./routes/push";
+import { activateDuePhases } from "./automation/activateDuePhases";
 import contractorPhaseNotes from "./routes/contractorPhaseNotes";
 import ordersRouter from "./routes/orders";
 import tenantUsersRoutes from "./routes/tenantUsers";
@@ -117,6 +118,11 @@ const port = process.env.PORT ? Number(process.env.PORT) : 8787;
     await client.end();
   }
 })();
+
+// 🔄 Run phase activation automation every 60 seconds
+setInterval(() => {
+  activateDuePhases();
+}, 60 * 1000);
 
 
 app.listen(port, "0.0.0.0", () => {
