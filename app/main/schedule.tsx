@@ -223,7 +223,11 @@ await Linking.openURL(url);
 
   async function updateTaskStatus(taskId: string, newStatus: 'scheduled' | 'complete') {
   const task = scheduledTasks.find(t => t.id === taskId);
-  if (task?.task_type === 'service' && !task.scheduled_at) return;
+
+  // 🚫 Do not allow backend updates for synthetic service tasks
+  if (!task || task.task_type === 'service' && !task.scheduled_at) {
+    return;
+  }
   // 1️⃣ Immediate local update
   const updated = scheduledTasks.map(task =>
     task.id === taskId
@@ -292,7 +296,10 @@ function isToday(day: number) {
 }
 
 async function rescheduleTask(task: any, daysToAdd: number) {
-  if (task.task_type === 'service' && !task.scheduled_at) return;
+  if (task.task_type === 'service' && !task.scheduled_at) {
+  return;
+}
+  
 const original = new Date(task.scheduled_at);
 
 // Always normalize time to 8:00 AM
@@ -342,7 +349,10 @@ const newIso = original.toISOString();
 }
 
 async function changeTaskCrew(task: any, newCrewId: string) {
-  if (task.task_type === 'service' && !task.scheduled_at) return;
+  if (task.task_type === 'service' && !task.scheduled_at) {
+  return;
+}
+  
   const updated = scheduledTasks.map(t =>
     t.id === task.id
       ? {
@@ -383,7 +393,11 @@ async function changeTaskCrew(task: any, newCrewId: string) {
 }
 
 async function unscheduleTask(task: any) {
-  if (task.task_type === 'service' && !task.scheduled_at) return;
+  // 🚫 Synthetic service tasks have no scheduled record to delete
+if (task.task_type === 'service' && !task.scheduled_at) {
+  return;
+}
+  
   // 1️⃣ Local first — remove task entirely
   const updated = scheduledTasks.filter(t => t.id !== task.id);
 

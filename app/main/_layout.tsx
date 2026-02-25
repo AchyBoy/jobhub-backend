@@ -16,6 +16,15 @@ export default function MainLayout() {
     name="index"
     options={{ title: 'Job Hub' }}
   />
+
+  <Stack.Screen
+    name="add-job"
+    options={{
+      headerBackVisible: false,
+      headerLeft: () => null,
+      gestureEnabled: false,
+    }}
+  />
 </Stack>
       </View>
 

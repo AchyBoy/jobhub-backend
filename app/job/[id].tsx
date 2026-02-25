@@ -804,7 +804,6 @@ return (
 const styles = StyleSheet.create({
 container: {
   flex: 1,
-  alignItems: 'center',
   paddingTop: 0,
   paddingHorizontal: 20,
   backgroundColor: '#ffffff',

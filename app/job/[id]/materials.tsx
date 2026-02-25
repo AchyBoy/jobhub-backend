@@ -763,16 +763,31 @@ const safeQty = Math.max(minAllowed, newQty);
 }
 
 async function openInMail(args: {
-  supplierEmail: string;
+  email: string;
   subject: string;
   body: string;
 }) {
   const mailto =
-    `mailto:${args.supplierEmail}` +
+    `mailto:${args.email}` +
     `?subject=${encodeURIComponent(args.subject)}` +
     `&body=${encodeURIComponent(args.body)}`;
 
-  await Linking.openURL(mailto);
+  const can = await Linking.canOpenURL(mailto);
+  if (!can) {
+    Alert.alert(
+      'Cannot open Mail',
+      'Your device cannot open a mail draft (no mail app/account configured).'
+    );
+    return false;
+  }
+
+  try {
+    await Linking.openURL(mailto);
+    return true;
+  } catch (e) {
+    Alert.alert('Cannot open Mail', 'Failed to open email draft.');
+    return false;
+  }
 }
 
 function createFormData(args: {
@@ -802,52 +817,64 @@ function createFormData(args: {
 }
 
 async function handleCreateOrder() {
-  if (!newPhase || !newSupplierId) {
-    alert('Select phase and supplier first');
+  if (!newPhase || (!newSupplierId && !newVendorId)) {
+    alert('Select phase and a Supplier OR Vendor first');
     return;
   }
 
-  const supplier = supplierMap[newSupplierId];
-  const supplierEmail =
-    supplier?.contacts?.find((c: any) => c.type === 'email')?.value;
+  const recipient =
+    newVendorId ? vendorMap[newVendorId] : supplierMap[newSupplierId!];
 
-  if (!supplierEmail) {
-    alert('Supplier has no email');
+  const recipientEmail =
+    recipient?.contacts?.find((c: any) => c.type === 'email')?.value;
+
+  if (!recipientEmail) {
+    alert(`${newVendorId ? 'Vendor' : 'Supplier'} has no email`);
     return;
   }
+
+  const recipientName = recipient?.name ?? (newVendorId ? 'Vendor' : 'Supplier');
+  const recipientId = newVendorId ?? newSupplierId!;
 
 let itemsToOrder: { materialId: string; qtyOrdered: number }[] = [];
 
-if (supplier?.isInternal) {
-  // Internal / On-Hand flow
-itemsToOrder = materials
-  .filter(
-    m =>
-      m.phase === newPhase &&
-      (m.qty_on_hand_applied ?? 0) > 0 &&
-      (m.qty_from_storage ?? 0) < (m.qty_on_hand_applied ?? 0)
-  )
+const supplier = !newVendorId ? supplierMap[newSupplierId!] : null;
+
+if (!newVendorId && supplier?.isInternal) {
+  // Internal / On-Hand flow (supplier only)
+  itemsToOrder = materials
+    .filter(
+      m =>
+        m.phase === newPhase &&
+        (m.qty_on_hand_applied ?? 0) > 0 &&
+        (m.qty_from_storage ?? 0) < (m.qty_on_hand_applied ?? 0)
+    )
     .map(m => ({
       materialId: m.id,
       qtyOrdered: m.qty_on_hand_applied ?? 0,
     }));
 } else {
-// Normal supplier flow
-itemsToOrder = materials
-  .filter(
-    m =>
-      m.phase === newPhase &&
-      m.supplier_id === newSupplierId &&
-      (m.qty_needed ?? 0) >
-        ((m.qty_ordered ?? 0) + (m.qty_from_storage ?? 0))
-  )
-  .map(m => ({
-    materialId: m.id,
-    qtyOrdered:
-      (m.qty_needed ?? 0) -
-      (m.qty_ordered ?? 0) -
-      (m.qty_from_storage ?? 0),
-  }));
+  // External flow (supplier OR vendor)
+  itemsToOrder = materials
+    .filter(m => {
+      const matchesParty = newVendorId
+        ? m.vendor_id === newVendorId
+        : m.supplier_id === newSupplierId;
+
+      return (
+        m.phase === newPhase &&
+        matchesParty &&
+        (m.qty_needed ?? 0) >
+          ((m.qty_ordered ?? 0) + (m.qty_from_storage ?? 0))
+      );
+    })
+    .map(m => ({
+      materialId: m.id,
+      qtyOrdered:
+        (m.qty_needed ?? 0) -
+        (m.qty_ordered ?? 0) -
+        (m.qty_from_storage ?? 0),
+    }));
 }
 
   if (!itemsToOrder.length) {
@@ -855,8 +882,7 @@ itemsToOrder = materials
     return;
   }
 try {
-    const supplierName =
-      supplierMap[newSupplierId]?.name ?? 'Supplier';
+    const supplierName = recipientName;
 
       //pdf generation logic
 const { orderId, uri } = await generateOrderPdf({
@@ -898,7 +924,7 @@ await persistLocalPdf(orderId, uri);
         orderId,
         jobId,
         phase: newPhase!,
-        supplierId: newSupplierId!,
+        supplierId: recipientId,
         items: itemsToOrder,
         pdfUri: uri,
       }),
@@ -920,11 +946,11 @@ const body =
   `Please find the material order PDF here:\r\n` +
   `${pdfUrl}\r\n`;
 
-    await openInMail({
-      supplierEmail,
-      subject,
-      body,
-    });
+await openInMail({
+  email: recipientEmail,
+  subject,
+  body,
+});
 
     // ✅ Mark supplier items as ordered - this handles qty_needed and qty_ordered
 if (!supplier?.isInternal) {
@@ -1209,6 +1235,8 @@ onPress={() => {
 
 <ScrollView
   ref={scrollRef}
+  nestedScrollEnabled
+  keyboardShouldPersistTaps="handled"
   contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
   showsVerticalScrollIndicator={false}
   onScroll={(e) => {
@@ -1378,10 +1406,12 @@ onPress={() => {
       Order Preview
     </Text>
 
-    <ScrollView
-      style={{ maxHeight: 220 }}
-      showsVerticalScrollIndicator
-    >
+<ScrollView
+  style={{ maxHeight: 220 }}
+  showsVerticalScrollIndicator
+  nestedScrollEnabled
+>
+
       {pendingOrderItems.map(it => {
         const m = materials.find(x => x.id === it.materialId);
         return (
@@ -1513,11 +1543,15 @@ setOrderPreviewOpen(true);
 >
 
 <Text style={{ color: '#fff', fontWeight: '700', textAlign: 'center' }}>
-  {ordering
-    ? 'Processing...'
-    : newPhase && newSupplierId
-      ? `Order ${newPhase} → ${supplierMap[newSupplierId]?.name ?? ''}`
-      : 'Select Phase & Supplier'}
+{ordering
+  ? 'Processing...'
+  : newPhase && (newSupplierId || newVendorId)
+    ? `Order ${newPhase} → ${
+        newVendorId
+          ? (vendorMap[newVendorId]?.name ?? '')
+          : (supplierMap[newSupplierId!]?.name ?? '')
+      }`
+    : 'Select Phase & Supplier/Vendor'}
 </Text>
 
 </Pressable>

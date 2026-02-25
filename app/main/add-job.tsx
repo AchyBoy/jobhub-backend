@@ -95,7 +95,7 @@ async function saveJob() {
       }
     }
 
-    router.replace(`/job/${jobId}`);
+    router.push(`/job/${jobId}`);
 
   } catch (err) {
     console.warn('Job creation failed', err);

@@ -202,13 +202,15 @@ return (
 />
 
     {/* Drill-down screens (need back + home) */}
-    <Stack.Screen
+<Stack.Screen
   name="job/[id]"
   options={({ route }: any) => ({
     title:
       typeof route.params?.name === 'string'
         ? route.params.name
         : 'Job',
+    headerBackTitle: 'Back',
+    headerBackTitleVisible: true,
   })}
 />
     <Stack.Screen name="job/[id]/notes" />
