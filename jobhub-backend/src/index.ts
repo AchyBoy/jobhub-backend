@@ -21,7 +21,7 @@ import contractorPhaseNotes from "./routes/contractorPhaseNotes";
 import ordersRouter from "./routes/orders";
 import tenantUsersRoutes from "./routes/tenantUsers";
 import supervisorPhaseNotes from './routes/supervisorPhaseNotes';
-
+import serviceCasesRouter from "./routes/serviceCases";
 import contractorsRoutes from "./routes/contractors";
 import vendorsRoutes from "./routes/vendors";
 import jobVendorsRoutes from "./routes/jobVendors";
@@ -73,6 +73,7 @@ app.use("/api/vendors", vendorsRoutes);
 app.use("/api/supervisors", supervisorsRoutes);
 app.use("/api/jobs", jobCrewsRoutes);
 app.use("/api/push", pushRoutes);
+app.use("/api/service-cases", serviceCasesRouter);
 app.use("/api/jobs", jobSupervisorsRoutes);
 app.use("/api/jobs", jobContractorsRoutes);
 app.use("/api/jobs", jobVendorsRoutes);

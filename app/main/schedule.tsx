@@ -148,6 +148,7 @@ useEffect(() => {
 }, [pendingScrollTaskId, scheduledTasks, viewMode]);
 
 async function sendScheduleEmail(task: any) {
+  if (task.task_type === 'service' && !task.scheduled_at) return;
 const crew = crews.find(c => c.id === task.crew_id);
 
 if (!crew) {
@@ -221,6 +222,8 @@ await Linking.openURL(url);
 }
 
   async function updateTaskStatus(taskId: string, newStatus: 'scheduled' | 'complete') {
+  const task = scheduledTasks.find(t => t.id === taskId);
+  if (task?.task_type === 'service' && !task.scheduled_at) return;
   // 1️⃣ Immediate local update
   const updated = scheduledTasks.map(task =>
     task.id === taskId
@@ -289,6 +292,7 @@ function isToday(day: number) {
 }
 
 async function rescheduleTask(task: any, daysToAdd: number) {
+  if (task.task_type === 'service' && !task.scheduled_at) return;
 const original = new Date(task.scheduled_at);
 
 // Always normalize time to 8:00 AM
@@ -338,6 +342,7 @@ const newIso = original.toISOString();
 }
 
 async function changeTaskCrew(task: any, newCrewId: string) {
+  if (task.task_type === 'service' && !task.scheduled_at) return;
   const updated = scheduledTasks.map(t =>
     t.id === task.id
       ? {
@@ -378,6 +383,7 @@ async function changeTaskCrew(task: any, newCrewId: string) {
 }
 
 async function unscheduleTask(task: any) {
+  if (task.task_type === 'service' && !task.scheduled_at) return;
   // 1️⃣ Local first — remove task entirely
   const updated = scheduledTasks.filter(t => t.id !== task.id);
 
@@ -532,15 +538,39 @@ setPhases(sorted);
 
     // 2️⃣ Attempt backend
     try {
-      const res = await apiFetch('/api/scheduled-tasks');
-      const tasks = res?.tasks ?? [];
+const res = await apiFetch('/api/scheduled-tasks');
+const tasks = res?.tasks ?? [];
 
-      setScheduledTasks(tasks);
+// 🔴 Fetch unscheduled service cases
+let serviceCases: any[] = [];
+try {
+  const scRes = await apiFetch('/api/service-cases?unscheduled=true');
+  serviceCases = scRes?.serviceCases ?? [];
+} catch {}
 
-      await AsyncStorage.setItem(
-        'scheduled_tasks_v1',
-        JSON.stringify(tasks)
-      );
+// 🔴 Convert unscheduled cases into synthetic tasks
+const synthetic = serviceCases.map(sc => ({
+  id: `service-${sc.id}`,
+  task_type: 'service',
+  service_case_id: sc.id,
+  job_id: null,
+  job_name: sc.property_name,
+  crew_id: null,
+  crew_name: null,
+  phase: null,
+  scheduled_at: null,
+  status: 'unscheduled',
+  service_data: sc,
+}));
+
+const merged = [...tasks, ...synthetic];
+
+setScheduledTasks(merged);
+
+await AsyncStorage.setItem(
+  'scheduled_tasks_v1',
+  JSON.stringify(merged)
+);
     } catch {
       // silent — offline keeps local
     }
@@ -579,7 +609,8 @@ setPhases(sorted);
 function hasTasksOnDate(day: number) {
   return filteredTasks.some(t => {
     if (!t.scheduled_at) return false;
-const taskDate = new Date(t.scheduled_at);
+
+    const taskDate = new Date(t.scheduled_at);
 
     return (
       taskDate.getFullYear() === currentMonth.getFullYear() &&
@@ -590,7 +621,7 @@ const taskDate = new Date(t.scheduled_at);
 }
 
 function tasksForSelectedDate() {
-  // 🔎 If searching, ignore date restriction
+  // If searching, ignore date restriction
   if (taskSearch.length > 0) {
     return filteredTasks;
   }
@@ -600,7 +631,13 @@ function tasksForSelectedDate() {
   const selected = new Date(selectedDate);
 
   return filteredTasks.filter(t => {
+    // 🔴 Unscheduled service shows on every day
+    if (!t.scheduled_at && t.task_type === 'service') {
+      return true;
+    }
+
     if (!t.scheduled_at) return false;
+
     const taskDate = new Date(t.scheduled_at);
 
     return (
@@ -1116,61 +1153,91 @@ onPress={() => {
       </Pressable>
 
       <Pressable
-        onPress={async () => {
-const base = new Date(rescheduleTargetDate);
+onPress={async () => {
+  const base = new Date(rescheduleTargetDate);
 
-const finalDate = new Date(
-  base.getFullYear(),
-  base.getMonth(),
-  base.getDate(),
-  rescheduleHour,
-  rescheduleMinute,
-  0,
-  0
+  const finalDate = new Date(
+    base.getFullYear(),
+    base.getMonth(),
+    base.getDate(),
+    rescheduleHour,
+    rescheduleMinute,
+    0,
+    0
+  );
+
+  const newIso = finalDate.toISOString();
+
+  // 🔵 SERVICE SCHEDULING
+  if (pendingRescheduleTask?.task_type === 'service') {
+    try {
+      const res = await apiFetch('/api/scheduled-tasks', {
+        method: 'POST',
+        body: JSON.stringify({
+          serviceCaseId: pendingRescheduleTask.service_case_id,
+          crewId: newTaskCrewId || crews[0]?.id,
+          scheduledAt: newIso,
+        }),
+      });
+
+const newTask = res?.task;
+
+if (!newTask?.id) return;
+
+// Ensure it's marked correctly as a real scheduled service
+const normalized = {
+  ...newTask,
+  task_type: 'service',
+};
+
+const withoutSynthetic = scheduledTasks.filter(
+  t => t.id !== pendingRescheduleTask.id
 );
 
-const newIso = finalDate.toISOString();
+const merged = [...withoutSynthetic, normalized];
 
-          const updated = scheduledTasks.map(t =>
-            t.id === pendingRescheduleTask.id
-              ? { ...t, scheduled_at: newIso }
-              : t
-          );
+      setScheduledTasks(merged);
+      await AsyncStorage.setItem(
+        'scheduled_tasks_v1',
+        JSON.stringify(merged)
+      );
+    } catch (err) {
+      console.log('Service scheduling failed', err);
+    }
 
-          setScheduledTasks(updated);
-          await AsyncStorage.setItem(
-            'scheduled_tasks_v1',
-            JSON.stringify(updated)
-          );
+    setPendingRescheduleTask(null);
+    setRescheduleTargetDate(null);
+    return;
+  }
 
-          try {
-            await apiFetch(
-              `/api/scheduled-tasks/${pendingRescheduleTask.id}`,
-              {
-                method: 'PATCH',
-                body: JSON.stringify({
-                  scheduledAt: newIso,
-                }),
-              }
-            );
-          } catch {
-            await enqueueSync({
-              id: makeId(),
-              type: 'scheduled_task_update',
-              coalesceKey: `scheduled_task_update:${pendingRescheduleTask.id}`,
-              createdAt: nowIso(),
-              payload: {
-                taskId: pendingRescheduleTask.id,
-                scheduledAt: newIso,
-              },
-            });
-          }
+  // 🟢 NORMAL JOB RESCHEDULE
+  const updated = scheduledTasks.map(t =>
+    t.id === pendingRescheduleTask.id
+      ? { ...t, scheduled_at: newIso }
+      : t
+  );
 
-          flushSyncQueue();
+  setScheduledTasks(updated);
+  await AsyncStorage.setItem(
+    'scheduled_tasks_v1',
+    JSON.stringify(updated)
+  );
 
-          setPendingRescheduleTask(null);
-          setRescheduleTargetDate(null);
-        }}
+  try {
+    await apiFetch(
+      `/api/scheduled-tasks/${pendingRescheduleTask.id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({
+          scheduledAt: newIso,
+        }),
+      }
+    );
+  } catch {}
+
+  setPendingRescheduleTask(null);
+  setRescheduleTargetDate(null);
+}}
       >
         <Text style={{ color: 'green', fontWeight: '700' }}>
           OK
@@ -1191,14 +1258,23 @@ const newIso = finalDate.toISOString();
       : ''}
 </Text>
 
-<Pressable
-  onPress={() => setIsCreating(!isCreating)}
-  style={{ marginBottom: 12 }}
->
-  <Text style={{ color: '#2563eb', fontWeight: '700' }}>
-    + Add Task
-  </Text>
-</Pressable>
+<View style={{ flexDirection: 'row', gap: 20, marginBottom: 12 }}>
+  <Pressable
+    onPress={() => setIsCreating(!isCreating)}
+  >
+    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+      + Add Task
+    </Text>
+  </Pressable>
+
+  <Pressable
+    onPress={() => router.push('/main/service')}
+  >
+    <Text style={{ color: '#16a34a', fontWeight: '700' }}>
+      + Service
+    </Text>
+  </Pressable>
+</View>
 
     {isCreating && (
   <KeyboardAvoidingView
@@ -1325,13 +1401,20 @@ const newIso = finalDate.toISOString();
 {tasksForSelectedDate().map(task => (
 <Pressable
   key={task.id}
-  style={[
-    styles.card,
-    pendingRescheduleTask?.id === task.id && {
-      borderWidth: 2,
-      borderColor: '#2563eb',
-    },
-  ]}
+style={[
+  styles.card,
+
+  // 🔴 Unscheduled service styling
+task.task_type === 'service' && !task.scheduled_at && {
+  borderWidth: 2,
+  borderColor: '#dc2626', // red border only
+},
+
+  pendingRescheduleTask?.id === task.id && {
+    borderWidth: 2,
+    borderColor: '#2563eb',
+  },
+]}
     onPress={() =>
       setExpandedId(
         expandedId === task.id ? null : task.id
@@ -1349,6 +1432,77 @@ onLongPress={() => {
         <Text style={styles.job}>
           {task.job_name}
         </Text>
+
+        {task.task_type === 'service' && task.service_data && (
+  <View style={{ marginTop: 6 }}>
+    {task.service_data.issue && (
+      <Text style={styles.meta}>
+        Issue: {task.service_data.issue}
+      </Text>
+    )}
+
+    {task.service_data.owner_name && (
+      <Text style={styles.meta}>
+        Owner: {task.service_data.owner_name}
+      </Text>
+    )}
+
+{Array.isArray(task.service_data.contacts) &&
+  task.service_data.contacts.map((c: any, i: number) => {
+    if (!c?.value) return null;
+
+    const isPhone = c.type === 'phone';
+    const isEmail = c.type === 'email';
+
+    return (
+      <Pressable
+        key={i}
+        onPress={() => {
+          if (isPhone) {
+            Linking.openURL(`tel:${c.value}`);
+          }
+          if (isEmail) {
+            Linking.openURL(`mailto:${c.value}`);
+          }
+        }}
+      >
+        <Text
+          style={[
+            styles.meta,
+            { color: '#2563eb', fontWeight: '600' },
+          ]}
+        >
+          {isPhone ? '📞 ' : '✉️ '}
+          {c.value}
+        </Text>
+      </Pressable>
+    );
+  })}
+  </View>
+)}
+
+        {task.task_type === 'service' && !task.scheduled_at && (
+  <View
+    style={{
+      alignSelf: 'flex-start',
+      marginTop: 6,
+      backgroundColor: '#dc2626',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 999,
+    }}
+  >
+    <Text
+      style={{
+        color: '#fff',
+        fontSize: 12,
+        fontWeight: '700',
+      }}
+    >
+      Unscheduled
+    </Text>
+  </View>
+)}
 
         <Text style={styles.meta}>
           {task.crew_name}
@@ -1383,6 +1537,46 @@ onLongPress={() => {
 
 {expandedId === task.id && (
   <View style={{ marginTop: 12 }}>
+
+  {task.task_type === 'service' && (
+  <View style={{ marginBottom: 12 }}>
+    <Pressable
+      onPress={(e) => {
+        e.stopPropagation();
+        router.push({
+          pathname: '/main/service',
+          params: {
+            serviceCaseId: task.service_case_id,
+          },
+        });
+      }}
+    >
+      <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+        Edit Service
+      </Text>
+    </Pressable>
+  </View>
+)}
+
+{task.task_type === 'service' && !task.scheduled_at && (
+  <View style={{ marginBottom: 12 }}>
+    <Pressable
+      onPress={() => {
+        setIsCreating(false);
+        setSelectedDate(new Date().toISOString());
+        setNewTaskCrewId(null);
+        setPendingRescheduleTask({
+          ...task,
+          __scheduleService: true,
+        });
+      }}
+    >
+      <Text style={{ color: '#16a34a', fontWeight: '700' }}>
+        Schedule Service
+      </Text>
+    </Pressable>
+  </View>
+)}
 
     {task.status !== 'complete' && (
       <Pressable

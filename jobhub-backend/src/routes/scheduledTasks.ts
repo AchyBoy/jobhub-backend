@@ -83,30 +83,69 @@ router.get("/", async (req: any, res) => {
 router.post("/", async (req: any, res) => {
   try {
     const tenantId = req.user?.tenantId;
-    const { jobId, crewId, phase, scheduledAt } = req.body;
+    const { jobId, serviceCaseId, crewId, phase, scheduledAt } = req.body;
 
-    if (!jobId || !crewId || !phase || !scheduledAt) {
-      return res.status(400).json({
-        error: "jobId, crewId, phase, scheduledAt required",
-      });
-    }
+    // Must provide either jobId OR serviceCaseId
+if ((!jobId && !serviceCaseId) || (jobId && serviceCaseId)) {
+  return res.status(400).json({
+    error: "Provide either jobId or serviceCaseId (not both)",
+  });
+}
+
+if (!crewId || !scheduledAt) {
+  return res.status(400).json({
+    error: "crewId and scheduledAt required",
+  });
+}
+
+// Phase only required for job tasks
+if (jobId && !phase) {
+  return res.status(400).json({
+    error: "phase required for job scheduling",
+  });
+}
 
     // Fetch job name
-    const jobResult = await pool.query(
-      `
-      SELECT name
-      FROM jobs
-      WHERE id = $1
-        AND tenant_id = $2
-      `,
-      [jobId, tenantId]
-    );
+let jobName: string;
+let taskType: string;
 
-    if (jobResult.rowCount === 0) {
-      return res.status(404).json({ error: "Job not found" });
-    }
+if (jobId) {
+  taskType = "job";
 
-    const jobName = jobResult.rows[0].name;
+  const jobResult = await pool.query(
+    `
+    SELECT name
+    FROM jobs
+    WHERE id = $1
+      AND tenant_id = $2
+    `,
+    [jobId, tenantId]
+  );
+
+  if (jobResult.rowCount === 0) {
+    return res.status(404).json({ error: "Job not found" });
+  }
+
+  jobName = jobResult.rows[0].name;
+} else {
+  taskType = "service";
+
+  const caseResult = await pool.query(
+    `
+    SELECT property_name
+    FROM service_cases
+    WHERE id = $1
+      AND tenant_id = $2
+    `,
+    [serviceCaseId, tenantId]
+  );
+
+  if (caseResult.rowCount === 0) {
+    return res.status(404).json({ error: "Service case not found" });
+  }
+
+  jobName = caseResult.rows[0].property_name;
+}
 
     // Fetch crew name
     const crewResult = await pool.query(
@@ -139,7 +178,7 @@ const isPaidTenant = false;
 // Only run automation if:
 // - bypass tenant (you)
 // - OR paid tenant in future
-if (isBypassTenant || isPaidTenant) {
+if (jobId && (isBypassTenant || isPaidTenant)) {
   try {
     await pool.query(
       `
@@ -167,28 +206,32 @@ if (isBypassTenant || isPaidTenant) {
     const result = await pool.query(
       `
       INSERT INTO scheduled_tasks (
-        id,
-        job_id,
-        tenant_id,
-        crew_id,
-        phase,
-        scheduled_at,
-        job_name,
-        crew_name
-      )
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+  id,
+  job_id,
+  service_case_id,
+  tenant_id,
+  crew_id,
+  phase,
+  scheduled_at,
+  job_name,
+  crew_name,
+  task_type
+)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       RETURNING *
       `,
-      [
-        id,
-        jobId,
-        tenantId,
-        crewId,
-        phase,
-        scheduledAt,
-        jobName,
-        crewName,
-      ]
+[
+  id,
+  jobId || null,
+  serviceCaseId || null,
+  tenantId,
+  crewId,
+  phase || null,
+  scheduledAt,
+  jobName,
+  crewName,
+  taskType,
+]
     );
 
     res.json({ task: result.rows[0] });
