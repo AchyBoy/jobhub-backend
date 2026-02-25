@@ -24,16 +24,19 @@ router.get("/job/:jobId", async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `
-      SELECT id, name
-      FROM jobs
-      WHERE id = $1
-        AND tenant_id = $2
-      LIMIT 1
-      `,
-      [jobId, tenantId]
-    );
+const result = await pool.query(
+  `
+  SELECT 
+    id,
+    name,
+    is_template as "isTemplate"
+  FROM jobs
+  WHERE id = $1
+    AND tenant_id = $2
+  LIMIT 1
+  `,
+  [jobId, tenantId]
+);
 
     if (result.rows.length === 0) {
       return res.status(404).json({ error: "Job not found" });
@@ -267,13 +270,14 @@ router.get("/job", async (req, res) => {
   try {
     const result = await pool.query(
       `
-      SELECT
-        id,
-        name,
-        created_at as "createdAt"
-      FROM jobs
-      WHERE tenant_id = $1
-      ORDER BY created_at DESC
+SELECT
+  id,
+  name,
+  is_template as "isTemplate",
+  created_at as "createdAt"
+FROM jobs
+WHERE tenant_id = $1
+ORDER BY created_at DESC
       `,
       [tenantId]
     );
@@ -282,6 +286,47 @@ router.get("/job", async (req, res) => {
   } catch (err) {
     console.error("❌ Failed to load jobs", err);
     res.status(500).json({ error: "Failed to load jobs" });
+  }
+});
+
+// PATCH /api/job/:jobId/template
+router.patch("/job/:jobId/template", async (req, res) => {
+  const jobId = String(req.params.jobId || "").trim();
+  const tenantId = (req as any).user?.tenantId;
+  const { isTemplate } = req.body || {};
+
+  if (!tenantId) {
+    return res.status(403).json({ error: "Missing tenant context" });
+  }
+
+  if (!jobId) {
+    return res.status(400).json({ error: "Missing jobId" });
+  }
+
+  if (typeof isTemplate !== "boolean") {
+    return res.status(400).json({ error: "Missing isTemplate boolean" });
+  }
+
+  try {
+    const result = await pool.query(
+      `
+      UPDATE jobs
+      SET is_template = $1
+      WHERE id = $2
+        AND tenant_id = $3
+      RETURNING id, is_template
+      `,
+      [isTemplate, jobId, tenantId]
+    );
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Job not found" });
+    }
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Failed updating template flag", err);
+    return res.status(500).json({ error: "Failed to update template flag" });
   }
 });
 

@@ -1,19 +1,21 @@
 //JobHub/app/main/add-job.tsx
 
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { supabase } from '../../src/lib/supabase';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+
 export default function AddJob() {
     const params = useLocalSearchParams<{
     templateId?: string;
     templateName?: string;
   }>();
-
+const [isSaving, setIsSaving] = useState(false);
+const [loadingDots, setLoadingDots] = useState('');
   const templateId = params.templateId;
   const [name, setName] = useState(
   params.templateName
@@ -22,70 +24,85 @@ export default function AddJob() {
 );
   const [type, setType] = useState<'single' | 'multi'>('single');
 
-  async function saveJob() {
-    if (!name.trim()) return;
-
-    const jobId = Date.now().toString();
-
-// 🧠 TEMPLATE PATH
-if (templateId) {
-  try {
-    await apiFetch('/api/templates/create/job', {
-      method: 'POST',
-      body: JSON.stringify({
-        templateId,
-        jobId,
-        jobName: name,
-      }),
-    });
-  } catch (err) {
-    console.warn('Template creation failed', err);
+  useEffect(() => {
+  if (!isSaving) {
+    setLoadingDots('');
     return;
   }
-}
 
-// 🔐 Persist job to backend (source of truth)
-try {
-  await apiFetch(`/api/job/${jobId}/meta`, {
-    method: 'POST',
-    body: JSON.stringify({ name }),
-  });
+  const interval = setInterval(() => {
+    setLoadingDots(prev => {
+      if (prev.length >= 3) return '';
+      return prev + '.';
+    });
+  }, 350);
 
-  // 1️⃣ Get tenant context
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
+  return () => clearInterval(interval);
+}, [isSaving]);
 
-  if (session) {
-    const me = await apiFetch('/api/tenant/me');
-    const tenantId = me.tenantId;
+async function saveJob() {
+  if (!name.trim() || isSaving) return;
 
-    if (tenantId) {
-      const cacheKey = `jobs:${tenantId}`;
+  setIsSaving(true);
 
-      const cached = await AsyncStorage.getItem(cacheKey);
-      const parsed = cached ? JSON.parse(cached) : [];
+  const jobId = Date.now().toString();
 
-      const newJob = {
-        id: jobId,
-        name,
-        type,
-        createdAt: new Date().toISOString(),
-      };
-
-      await AsyncStorage.setItem(
-        cacheKey,
-        JSON.stringify([newJob, ...parsed])
-      );
+  try {
+    // 🧠 TEMPLATE PATH
+    if (templateId) {
+      await apiFetch('/api/templates/create/job', {
+        method: 'POST',
+        body: JSON.stringify({
+          templateId,
+          jobId,
+          jobName: name,
+        }),
+      });
     }
-  }
-} catch (err) {
-  console.warn('Failed to create job in backend', err);
-  return;
-}
 
-router.push(`/job/${jobId}`);
+    // 🔐 Persist job to backend (source of truth)
+    await apiFetch(`/api/job/${jobId}/meta`, {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
+
+    // 1️⃣ Get tenant context
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+
+    if (session) {
+      const me = await apiFetch('/api/tenant/me');
+      const tenantId = me.tenantId;
+
+      if (tenantId) {
+        const cacheKey = `jobs:${tenantId}`;
+
+        const cached = await AsyncStorage.getItem(cacheKey);
+        const parsed = cached ? JSON.parse(cached) : [];
+
+        const newJob = {
+          id: jobId,
+          name,
+          type,
+          createdAt: new Date().toISOString(),
+        };
+
+        await AsyncStorage.setItem(
+          cacheKey,
+          JSON.stringify([newJob, ...parsed])
+        );
+      }
+    }
+
+    router.replace(`/job/${jobId}`);
+
+  } catch (err) {
+    console.warn('Job creation failed', err);
+  } finally {
+    setIsSaving(false);
   }
+}
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -150,8 +167,17 @@ router.push(`/job/${jobId}`);
   </Text>
 </Pressable>
 
-<Pressable style={styles.button} onPress={saveJob}>
-  <Text style={styles.buttonText}>Save Job</Text>
+<Pressable
+  style={[
+    styles.button,
+    isSaving && { backgroundColor: '#6b7280' },
+  ]}
+  onPress={saveJob}
+  disabled={isSaving}
+>
+  <Text style={styles.buttonText}>
+    {isSaving ? `Loading${loadingDots}` : 'Save Job'}
+  </Text>
 </Pressable>
       </View>
     </SafeAreaView>

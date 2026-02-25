@@ -12,6 +12,7 @@ type Job = {
   id: string;
   name: string;
   type: 'single' | 'multi';
+  isTemplate?: boolean;
   address?: string;
   notes?: string;
 };
@@ -157,46 +158,116 @@ function handleSortPress() {
 }
 
 function openJob(job: Job) {
-  router.push({
-    pathname: `/job/${job.id}`,
-    params: { name: job.name },
-  });
+  if (job.isTemplate) {
+    Alert.alert(
+      'Editing Template',
+      'You are about to edit a TEMPLATE.\n\nChanges will affect all future jobs created from this template.\n\nContinue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Continue',
+          onPress: () => {
+            router.push({
+              pathname: `/job/${job.id}`,
+              params: { name: job.name },
+            });
+          },
+        },
+      ]
+    );
+  } else {
+    router.push({
+      pathname: `/job/${job.id}`,
+      params: { name: job.name },
+    });
+  }
 }
 
 async function deleteJob(job: Job) {
-  Alert.alert(
-    'Delete Job',
-    'This will permanently delete this job and ALL related data.\n\nThis action cannot be undone.',
-    [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Delete',
-        style: 'destructive',
-        onPress: async () => {
-          try {
-            await apiFetch(`/api/job/${job.id}`, {
-              method: 'DELETE',
-            });
+  if (job.isTemplate) {
+    Alert.alert(
+      'Template Options',
+      'This job is marked as a TEMPLATE.',
+      [
+        {
+          text: 'Remove Template Status',
+          onPress: async () => {
+            try {
+              await apiFetch(`/api/job/${job.id}/template`, {
+                method: 'PATCH',
+                body: JSON.stringify({ isTemplate: false }),
+              });
 
-            // Remove locally
-            setJobs(prev => prev.filter(j => j.id !== job.id));
+              setJobs(prev =>
+                prev.map(j =>
+                  j.id === job.id
+                    ? { ...j, isTemplate: false }
+                    : j
+                )
+              );
 
-            // Clean cached job data
-            await AsyncStorage.multiRemove([
-              `job:${job.id}:crews`,
-              `job:${job.id}:defaults`,
-            ]);
-
-            // Refresh silently to sync everything
-            refreshJobsSilently();
-
-          } catch {
-            Alert.alert('Delete failed');
-          }
+              refreshJobsSilently();
+            } catch {
+              Alert.alert('Failed to update template status');
+            }
+          },
         },
-      },
-    ]
-  );
+        {
+          text: 'Delete Job',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiFetch(`/api/job/${job.id}`, {
+                method: 'DELETE',
+              });
+
+              setJobs(prev => prev.filter(j => j.id !== job.id));
+
+              await AsyncStorage.multiRemove([
+                `job:${job.id}:crews`,
+                `job:${job.id}:defaults`,
+              ]);
+
+              refreshJobsSilently();
+            } catch {
+              Alert.alert('Delete failed');
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
+  } else {
+    Alert.alert(
+      'Delete Job',
+      'This will permanently delete this job and ALL related data.\n\nThis action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await apiFetch(`/api/job/${job.id}`, {
+                method: 'DELETE',
+              });
+
+              setJobs(prev => prev.filter(j => j.id !== job.id));
+
+              await AsyncStorage.multiRemove([
+                `job:${job.id}:crews`,
+                `job:${job.id}:defaults`,
+              ]);
+
+              refreshJobsSilently();
+            } catch {
+              Alert.alert('Delete failed');
+            }
+          },
+        },
+      ]
+    );
+  }
 }
 
 return (
@@ -237,7 +308,10 @@ return (
           contentContainerStyle={{ paddingBottom: 40 }}
           renderItem={({ item }) => (
 <Pressable
-  style={styles.card}
+  style={[
+  styles.card,
+  item.isTemplate && styles.templateCard,
+]}
   onPress={() => openJob(item)}
   onLongPress={
     role === 'owner' || role === 'admin'
@@ -246,6 +320,12 @@ return (
   }
 >
   <Text style={styles.jobName}>{item.name}</Text>
+
+  {item.isTemplate && (
+  <Text style={styles.templateBadge}>
+    TEMPLATE
+  </Text>
+)}
 
 {(role === 'owner' || role === 'admin') && (
   <Text style={styles.hint}>Hold to delete</Text>
@@ -366,6 +446,23 @@ borderColor: '#bfdbfe',
 single: {
   backgroundColor: '#dbeafe',
   color: '#1e3a8a',
+},
+
+templateBadge: {
+  marginTop: 6,
+  paddingVertical: 4,
+  paddingHorizontal: 10,
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: '700',
+  alignSelf: 'flex-start',
+  backgroundColor: '#fee2e2',
+  color: '#b91c1c',
+},
+
+templateCard: {
+  borderColor: '#dc2626', // red-600
+  borderWidth: 2,
 },
 
   multi: {

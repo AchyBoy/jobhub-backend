@@ -718,7 +718,11 @@ function isStorageLocked(material: any) {
 }
 
 async function setQtyDirect(material: any, newQty: number) {
-  const safeQty = Math.max(0, newQty);
+  const minAllowed =
+  (material.qty_ordered ?? 0) +
+  (material.qty_from_storage ?? 0);
+
+const safeQty = Math.max(minAllowed, newQty);
 
   const updated = materials.map(m =>
     m.id === material.id
@@ -2078,7 +2082,14 @@ const supplier =
 
 if (!supplier) return null;
 
-      const supplierMaterials = materialsBySupplier[supplierId];
+      const supplierMaterials = (materialsBySupplier[supplierId] || []).filter(
+  (m: any) =>
+    (m.qty_needed ?? 0) > 0 ||
+    (m.qty_ordered ?? 0) > 0 ||
+    (m.qty_from_storage ?? 0) > 0 ||
+    (m.qty_on_hand_applied ?? 0) > 0
+);
+if (!supplierMaterials.length) return null;
       const isExpanded = expandedSuppliers[supplierId];
 
       return (

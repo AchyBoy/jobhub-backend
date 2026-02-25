@@ -141,15 +141,15 @@ qty_needed = COALESCE($1::int, qty_needed),
 
 supplier_id =
   CASE
-    WHEN $2 IS NOT NULL THEN $2
-    WHEN $3 IS NOT NULL THEN NULL
+    WHEN $2::text IS NOT NULL THEN $2::text
+    WHEN $3::text IS NOT NULL THEN NULL
     ELSE supplier_id
   END,
 
 vendor_id =
   CASE
-    WHEN $3 IS NOT NULL THEN $3
-    WHEN $2 IS NOT NULL THEN NULL
+    WHEN $3::text IS NOT NULL THEN $3::text
+    WHEN $2::text IS NOT NULL THEN NULL
     ELSE vendor_id
   END,
 

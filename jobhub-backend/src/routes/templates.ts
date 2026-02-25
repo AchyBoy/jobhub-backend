@@ -41,286 +41,36 @@ router.get("/", async (req: any, res) => {
  */
 router.post("/from-job/:jobId", async (req: any, res) => {
   const tenantId = req.user?.tenantId;
-  const sourceJobId = String(req.params.jobId || "").trim();
+  const jobId = String(req.params.jobId || "").trim();
 
   if (!tenantId) return res.status(403).json({ error: "Missing tenant" });
-  if (!sourceJobId) return res.status(400).json({ error: "Missing jobId" });
-
-  const client = await pool.connect();
+  if (!jobId) return res.status(400).json({ error: "Missing jobId" });
 
   try {
-    await client.query("BEGIN");
-
-    const jobRes = await client.query(
+    const result = await pool.query(
       `
-      SELECT name
-      FROM jobs
+      UPDATE jobs
+      SET is_template = true
       WHERE id = $1
       AND tenant_id = $2
       AND is_template = false
+      RETURNING id, name
       `,
-      [sourceJobId, tenantId]
+      [jobId, tenantId]
     );
 
-    if (!jobRes.rowCount) {
-      throw new Error("Source job not found");
+    if (!result.rowCount) {
+      return res.status(404).json({ error: "Job not found or already template" });
     }
-
-    const templateId = `template_${Date.now()}`;
-    const templateName = `Template – ${jobRes.rows[0].name}`;
-
-    await client.query(
-      `
-      INSERT INTO jobs (id, name, tenant_id, is_template)
-      VALUES ($1, $2, $3, true)
-      `,
-      [templateId, templateName, tenantId]
-    );
-
-    await client.query(
-      `
-      INSERT INTO notes (
-        id,
-        job_id,
-        phase,
-        note_a,
-        note_b,
-        text,
-        status,
-        created_at,
-        tenant_id
-      )
-      SELECT
-        gen_random_uuid()::text,
-        $2,
-        phase,
-        note_a,
-        note_b,
-        text,
-        status,
-        created_at,
-        tenant_id
-      FROM notes
-      WHERE job_id = $1
-      AND tenant_id = $3
-      `,
-      [sourceJobId, templateId, tenantId]
-    );
-
-    // =============================
-// Clone Materials Into Template
-// =============================
-await client.query(
-  `
-  INSERT INTO materials (
-    id,
-    tenant_id,
-    job_id,
-    item_name,
-    item_code,
-    phase,
-    supplier_id,
-    qty_needed,
-    qty_allocated,
-    qty_ordered,
-    qty_delivered,
-    status,
-    date_ready,
-    date_ordered,
-    date_delivered,
-    automation_payload,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    tenant_id,
-    $2,
-    item_name,
-    item_code,
-    phase,
-    supplier_id,
-    qty_needed,
-    qty_allocated,
-    qty_ordered,
-    qty_delivered,
-    status,
-    date_ready,
-    date_ordered,
-    date_delivered,
-    automation_payload,
-    now()
-  FROM materials
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-// =============================
-// Clone Job Contractors
-// =============================
-await client.query(
-  `
-  INSERT INTO job_contractors (
-    id,
-    job_id,
-    contractor_id,
-    tenant_id,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    $2,
-    contractor_id,
-    tenant_id,
-    now()
-  FROM job_contractors
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-// =============================
-// Clone Job Supervisors
-// =============================
-await client.query(
-  `
-  INSERT INTO job_supervisors (
-    id,
-    job_id,
-    supervisor_id,
-    tenant_id,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    $2,
-    supervisor_id,
-    tenant_id,
-    now()
-  FROM job_supervisors
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-// =============================
-// Clone Job Inspections
-// =============================
-await client.query(
-  `
-  INSERT INTO job_inspections (
-    id,
-    job_id,
-    inspection_id,
-    tenant_id,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    $2,
-    inspection_id,
-    tenant_id,
-    now()
-  FROM job_inspections
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-// =============================
-// Clone Job Permit Companies
-// =============================
-await client.query(
-  `
-  INSERT INTO job_permit_companies (
-    id,
-    job_id,
-    permit_company_id,
-    tenant_id,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    $2,
-    permit_company_id,
-    tenant_id,
-    now()
-  FROM job_permit_companies
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-// =============================
-// Clone Job Vendors
-// =============================
-await client.query(
-  `
-  INSERT INTO job_vendors (
-    id,
-    job_id,
-    vendor_id,
-    tenant_id,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    $2,
-    vendor_id,
-    tenant_id,
-    now()
-  FROM job_vendors
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-// =============================
-// Clone Crew Job Assignments
-// =============================
-await client.query(
-  `
-  INSERT INTO crew_job_assignments (
-    id,
-    tenant_id,
-    crew_id,
-    job_id,
-    phase,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    tenant_id,
-    crew_id,
-    $2,
-    phase,
-    now()
-  FROM crew_job_assignments
-  WHERE job_id = $1
-  AND tenant_id = $3
-  `,
-  [sourceJobId, templateId, tenantId]
-);
-
-    await client.query("COMMIT");
 
     res.json({
       success: true,
-      templateId,
-      name: templateName,
+      templateId: jobId,
+      name: result.rows[0].name,
     });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("❌ Failed creating template", err);
-    res.status(500).json({ error: "Failed to create template" });
-  } finally {
-    client.release();
+    console.error("❌ Failed converting job to template", err);
+    res.status(500).json({ error: "Failed to convert job to template" });
   }
 });
 

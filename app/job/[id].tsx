@@ -27,7 +27,7 @@ const [noteSummary, setNoteSummary] = useState<{
   incomplete: number;
   complete: number;
 } | null>(null);
-
+const [isTemplate, setIsTemplate] = useState(false);
 const [jobName, setJobName] = useState<string>('Job');
 const [editingName, setEditingName] = useState(false);
 const [nameDraft, setNameDraft] = useState('');
@@ -262,9 +262,10 @@ async function assignCrew(crewId: string, phase: string) {
 async function loadJob() {
   try {
     const res = await apiFetch(`/api/job/${id}`);
-    if (res?.job?.name) {
+    if (res?.job) {
       setJobName(res.job.name);
       setNameDraft(res.job.name);
+      setIsTemplate(!!res.job.isTemplate);
     }
   } catch {}
 }
@@ -400,6 +401,38 @@ loadNoteSummary();
 </View>
 
 <Text style={styles.sub}>Job ID: {id}</Text>
+{isTemplate && (
+  <View
+    style={{
+      marginTop: 12,
+      paddingVertical: 10,
+      paddingHorizontal: 14,
+      borderRadius: 12,
+      backgroundColor: '#fef2f2',
+      borderWidth: 1,
+      borderColor: '#fca5a5',
+    }}
+  >
+    <Text
+      style={{
+        fontSize: 13,
+        fontWeight: '600',
+        color: '#b91c1c',
+      }}
+    >
+      You are editing a TEMPLATE.
+    </Text>
+    <Text
+      style={{
+        fontSize: 12,
+        marginTop: 4,
+        color: '#7f1d1d',
+      }}
+    >
+      Changes here will affect all future jobs created from this template.
+    </Text>
+  </View>
+)}
 
 <View style={styles.actions}>
 
@@ -709,39 +742,55 @@ return (
       </Text>
     </Pressable>
 
-        {/* Create Template */}
-<Pressable
-  style={[styles.card, { backgroundColor: '#ecfdf5', borderColor: '#6ee7b7' }]}
-  onPress={() => {
-    Alert.alert(
-      'Create Template',
-      'This will create a reusable template from this job. Continue?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Create',
-          style: 'default',
-          onPress: async () => {
-            try {
-              await apiFetch(`/api/templates/from-job/${id}`, {
-                method: 'POST',
-              });
+{!isTemplate && (
+  <>
+    {/* Create Template */}
+    <Pressable
+      style={[
+        styles.card,
+        { backgroundColor: '#ecfdf5', borderColor: '#6ee7b7' },
+      ]}
+      onPress={() => {
+        Alert.alert(
+          'Create Template',
+          'This will convert this job into a reusable template.\n\nContinue?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            {
+              text: 'Create',
+              style: 'default',
+              onPress: async () => {
+                try {
+                  await apiFetch(
+                    `/api/templates/from-job/${id}`,
+                    { method: 'POST' }
+                  );
 
-              Alert.alert('Success', 'Template created successfully.');
-            } catch (err) {
-              Alert.alert('Error', 'Failed to create template.');
-            }
-          },
-        },
-      ]
-    );
-  }}
->
-  <Text style={styles.cardTitle}>Create Template</Text>
-  <Text style={styles.cardSub}>
-    Save this job structure as a reusable template
-  </Text>
-</Pressable>
+                  Alert.alert(
+                    'Success',
+                    'Job converted to template.'
+                  );
+
+                  setIsTemplate(true);
+                } catch {
+                  Alert.alert(
+                    'Error',
+                    'Failed to create template.'
+                  );
+                }
+              },
+            },
+          ]
+        );
+      }}
+    >
+      <Text style={styles.cardTitle}>Create Template</Text>
+      <Text style={styles.cardSub}>
+        Convert this job into a reusable template
+      </Text>
+    </Pressable>
+  </>
+)}
 
   </View>
 

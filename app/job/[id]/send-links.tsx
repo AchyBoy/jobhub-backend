@@ -116,11 +116,26 @@ try {
 }
 }
 
-function sendCrewLink() {
+function sendCrewLink(crew?: { name?: string; email?: string }) {
   const url = buildCrewUrl();
   if (!url) return;
 
-  console.log('CREW LINK:', url);
+  if (!crew?.email) {
+    alert('Crew member has no email registered');
+    return;
+  }
+
+  const subject = `JobHub Link – ${jobName || id}`;
+  const body =
+    `Here is your job link:\n\n${url}\n\n` +
+    `Phase: ${activePhase}`;
+
+  const mailto =
+    `mailto:${crew.email}` +
+    `?subject=${encodeURIComponent(subject)}` +
+    `&body=${encodeURIComponent(body)}`;
+
+  Linking.openURL(mailto);
 }
 
   return (
@@ -217,18 +232,21 @@ function sendCrewLink() {
       {buildCrewUrl()}
     </Text>
 
-    <Pressable
-      onPress={async () => {
-        const url = buildCrewUrl();
-        if (!url) return;
-        await Clipboard.setStringAsync(url);
-      }}
-      style={{ paddingVertical: 6 }}
-    >
-      <Text style={{ color: '#16a34a', fontWeight: '600' }}>
-        Copy Link to Clipboard
-      </Text>
-    </Pressable>
+<Pressable
+  onPress={async () => {
+    const url = buildCrewUrl();
+    if (!url) return;
+
+    await Clipboard.setStringAsync(url);
+
+    alert('Link copied to clipboard');
+  }}
+  style={{ paddingVertical: 6 }}
+>
+  <Text style={{ color: '#16a34a', fontWeight: '600' }}>
+    Copy Link to Clipboard
+  </Text>
+</Pressable>
 
     <Pressable
       onPress={() => {
