@@ -28,13 +28,21 @@ const [crews, setCrews] = useState<any[]>([]);
 const [showFilterCrewDropdown, setShowFilterCrewDropdown] = useState(false);
 const [showFilterStatusDropdown, setShowFilterStatusDropdown] = useState(false);
 const [showFilterPhaseDropdown, setShowFilterPhaseDropdown] = useState(false);
+const [phaseGroups, setPhaseGroups] = useState<
+  Record<string, { groupId: string; children: string[] }>
+>({});
 const [phases, setPhases] = useState<string[]>([]);
 const [taskSearch, setTaskSearch] = useState('');
+const [showPhaseGroupModal, setShowPhaseGroupModal] = useState(false);
+const [groupChildrenSelection, setGroupChildrenSelection] = useState<string[]>([]);
+const [activeGroupPhase, setActiveGroupPhase] = useState<string | null>(null);
 const [viewMode, setViewMode] = useState<'calendar' | 'list' | 'ios'>('calendar');
 const [currentMonth, setCurrentMonth] = useState(new Date());
 const scrollRef = useRef<ScrollView>(null);
 const timeWheelRef = useRef<ScrollView>(null);
 const { taskId } = useLocalSearchParams<{ taskId?: string }>();
+
+console.log("SCHEDULE PARAM taskId =", taskId);
 const router = useRouter();
 const taskYPositionsRef = useRef<Record<string, number>>({});
 const [highlightTaskId, setHighlightTaskId] = useState<string | null>(null);
@@ -222,6 +230,8 @@ await Linking.openURL(url);
 }
 
   async function updateTaskStatus(taskId: string, newStatus: 'scheduled' | 'complete') {
+    if (taskId.startsWith('temp-')) return;
+    console.log("UPDATE STATUS CALLED WITH ID =", taskId);
   const task = scheduledTasks.find(t => t.id === taskId);
 
   // 🚫 Do not allow backend updates for synthetic service tasks
@@ -296,6 +306,7 @@ function isToday(day: number) {
 }
 
 async function rescheduleTask(task: any, daysToAdd: number) {
+  if (task.id.startsWith('temp-')) return;
   if (task.task_type === 'service' && !task.scheduled_at) {
   return;
 }
@@ -349,6 +360,7 @@ const newIso = original.toISOString();
 }
 
 async function changeTaskCrew(task: any, newCrewId: string) {
+  if (task.id.startsWith('temp-')) return;
   if (task.task_type === 'service' && !task.scheduled_at) {
   return;
 }
@@ -393,6 +405,8 @@ async function changeTaskCrew(task: any, newCrewId: string) {
 }
 
 async function unscheduleTask(task: any) {
+  if (task.id.startsWith('temp-')) return;
+  console.log("UNSCHEDULE CALLED WITH ID =", task.id);
   // 🚫 Synthetic service tasks have no scheduled record to delete
 if (task.task_type === 'service' && !task.scheduled_at) {
   return;
@@ -428,6 +442,7 @@ if (task.task_type === 'service' && !task.scheduled_at) {
 }
 
 async function createTaskFromCalendar() {
+  
   if (!selectedDate || !newTaskJobId || !newTaskCrewId || !newTaskPhase) {
     return;
   }
@@ -442,8 +457,10 @@ dateObj.setMilliseconds(0);
 
   const iso = dateObj.toISOString();
 
-  const localTask = {
-    id: makeId(),
+const tempId = `temp-${makeId()}`;
+
+const localTask = {
+  id: tempId,
     job_id: newTaskJobId,
     crew_id: newTaskCrewId,
     phase: newTaskPhase,
@@ -462,18 +479,33 @@ dateObj.setMilliseconds(0);
   );
 
   // 2️⃣ Attempt backend
-  try {
-    await apiFetch('/api/scheduled-tasks', {
-      method: 'POST',
-      body: JSON.stringify({
-        jobId: newTaskJobId,
-        crewId: newTaskCrewId,
-        phase: newTaskPhase,
-        scheduledAt: iso,
-      }),
-    });
+try {
+  const res = await apiFetch('/api/scheduled-tasks', {
+    method: 'POST',
+    body: JSON.stringify({
+      jobId: newTaskJobId,
+      crewId: newTaskCrewId,
+      phase: newTaskPhase,
+      scheduledAt: iso,
+    }),
+  });
 
-  } catch {
+  const created = res?.task;
+  if (created?.id) {
+    const replaced = updated.map(t =>
+      t.id === localTask.id
+        ? { ...t, id: created.id }
+        : t
+    );
+
+    setScheduledTasks(replaced);
+    await AsyncStorage.setItem(
+      'scheduled_tasks_v1',
+      JSON.stringify(replaced)
+    );
+  }
+
+} catch {
     await enqueueSync({
       id: makeId(),
       type: 'scheduled_task_create',
@@ -509,19 +541,41 @@ setJobs(jobsRes?.jobs ?? []);
   } catch {}
 
   try {
-    const phasesRes = await apiFetch('/api/phases');
-    const names =
-  phasesRes?.phases?.map((p: any) => p.name) ?? [];
+const phasesRes = await apiFetch('/api/phases');
+const phaseObjects = phasesRes?.phases ?? [];
 
-const sorted = [...names].sort((a, b) =>
-  a.localeCompare(b)
-);
+const sorted = [...phaseObjects]
+  .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+  .map((p: any) => p.name);
 
 setPhases(sorted);
+
+// 🔵 Load phase groups from dedicated endpoint
+try {
+  const pgRes = await apiFetch('/api/phase-groups');
+  const groups = pgRes?.phaseGroups ?? [];
+
+  const map: Record<string, { groupId: string; children: string[] }> = {};
+
+  groups.forEach((g: any) => {
+    if (g.basePhase && Array.isArray(g.children)) {
+      map[g.basePhase] = {
+        groupId: g.id,
+        children: g.children,
+      };
+    }
+  });
+
+  setPhaseGroups(map);
+  console.log('PHASE GROUPS MAP:', map);
+} catch (err) {
+  console.log('Failed loading phase groups');
+}
   } catch {}
 }
 
   async function loadScheduledTasks() {
+      await AsyncStorage.removeItem('scheduled_tasks_v1');
     // 1️⃣ Local first
     const local = await AsyncStorage.getItem('scheduled_tasks_v1');
     if (local) {
@@ -1046,6 +1100,7 @@ onPress={() => {
                 {hasTasksOnDate(day) && (
                   <View style={styles.dot} />
                 )}
+
               </>
             )}
           </Pressable>
@@ -1333,14 +1388,91 @@ const merged = [...withoutSynthetic, normalized];
   </Text>
 </Pressable>
 
+{newTaskPhase && (
+  <View style={{ marginTop: 10 }}>
+    <Pressable
+      onPress={() => {
+        setActiveGroupPhase(newTaskPhase);
+
+        if (phaseGroups[newTaskPhase]) {
+          setGroupChildrenSelection([
+            ...phaseGroups[newTaskPhase].children,
+          ]);
+        } else {
+          const baseWord = newTaskPhase.toLowerCase();
+
+          const matches = phases.filter(ph => {
+            if (ph === newTaskPhase) return false;
+            return ph.toLowerCase().includes(baseWord);
+          });
+
+          setGroupChildrenSelection(matches);
+        }
+
+        setShowPhaseGroupModal(true);
+      }}
+      style={{
+        paddingVertical: 8,
+      }}
+    >
+      <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+        Enable Grouping
+      </Text>
+    </Pressable>
+  </View>
+)}
+
 {showPhaseDropdown &&
-  phases.map(p => (
+  [
+    ...phases,
+    ...Object.keys(phaseGroups).map(
+      base => `Grouped Phase: ${base}`
+    ),
+  ].map(p => (
     <Pressable
       key={p}
-      onPress={() => {
-        setNewTaskPhase(p);
-        setShowPhaseDropdown(false);
-      }}
+onPress={() => {
+setShowPhaseDropdown(false);
+
+// If selecting grouped phase
+if (p.startsWith('Grouped Phase: ')) {
+  const base = p.replace('Grouped Phase: ', '');
+  setNewTaskPhase(p);
+  setActiveGroupPhase(base);
+  setGroupChildrenSelection(
+    phaseGroups[base]?.children ?? []
+  );
+  return;
+}
+
+setNewTaskPhase(p);
+
+if (phaseGroups[p]) {
+  // Existing saved grouping
+  setGroupChildrenSelection([...phaseGroups[p].children]);
+} else {
+  // 🔵 SMART MATCH: match phases that END with base word
+  // Example:
+  // base = "Rough"
+  // matches: "Office Rough", "Garage Rough"
+  // avoids accidental partial collisions
+
+const baseWord = p.toLowerCase().trim();
+
+// match full word anywhere (Rough In, Office Rough, Final Rough)
+const wordRegex = new RegExp(`\\b${baseWord}\\b`);
+
+const matches = phases.filter(ph => {
+  if (ph === p) return false;
+
+  return wordRegex.test(ph.toLowerCase());
+});
+
+  setGroupChildrenSelection(matches);
+}
+
+setShowPhaseGroupModal(true);
+}}
       style={{ paddingVertical: 4 }}
     >
       <Text>{p}</Text>
@@ -1793,6 +1925,103 @@ router.push({
     </ScrollView>
   </View>
   </KeyboardAvoidingView>
+{showPhaseGroupModal && activeGroupPhase && (
+    <View
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0,0,0,0.4)',
+        justifyContent: 'center',
+        padding: 20,
+      }}
+    >
+      <View
+        style={{
+          backgroundColor: '#fff',
+          borderRadius: 16,
+          padding: 20,
+        }}
+      >
+        <Text style={{ fontWeight: '700', fontSize: 16, marginBottom: 12 }}>
+          Schedule Sub-Phases?
+        </Text>
+
+{(
+  phaseGroups[activeGroupPhase]?.children?.length
+    ? phaseGroups[activeGroupPhase].children
+    : phases.filter(p => p !== activeGroupPhase)
+).map(child => {
+  
+          const selected = groupChildrenSelection.includes(child);
+
+          return (
+            <Pressable
+              key={child}
+              onPress={() => {
+                if (selected) {
+                  setGroupChildrenSelection(prev =>
+                    prev.filter(c => c !== child)
+                  );
+                } else {
+                  setGroupChildrenSelection(prev => [...prev, child]);
+                }
+              }}
+              style={{ paddingVertical: 8 }}
+            >
+              <Text style={{ fontWeight: selected ? '700' : '400' }}>
+                {selected ? '✓ ' : ''}{child}
+              </Text>
+            </Pressable>
+          );
+        })}
+
+        <View style={{ flexDirection: 'row', marginTop: 16, gap: 20 }}>
+          <Pressable onPress={() => setShowPhaseGroupModal(false)}>
+            <Text style={{ color: 'red', fontWeight: '700' }}>
+              Cancel
+            </Text>
+          </Pressable>
+
+ <Pressable
+  onPress={async () => {
+    if (!activeGroupPhase) return;
+
+    try {
+      await apiFetch('/api/phase-groups', {
+        method: 'POST',
+        body: JSON.stringify({
+          basePhase: activeGroupPhase,
+          children: groupChildrenSelection,
+        }),
+      });
+
+      // Rebuild local phaseGroups map immediately
+      setPhaseGroups(prev => ({
+        ...prev,
+        [activeGroupPhase]: {
+          groupId: 'temp', // backend ID not needed immediately
+          children: groupChildrenSelection,
+        },
+      }));
+
+    } catch (err) {
+      console.log('Failed to save phase group');
+    }
+
+    setShowPhaseGroupModal(false);
+  }}
+>
+  <Text style={{ color: 'green', fontWeight: '700' }}>
+    Confirm
+  </Text>
+</Pressable>
+        </View>
+      </View>
+    </View>
+  )}
 </>
 );
 }

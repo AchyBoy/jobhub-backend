@@ -2,6 +2,7 @@
 
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import { useState, useEffect } from 'react';
+import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
@@ -60,11 +61,35 @@ async function saveJob() {
       });
     }
 
-    // 🔐 Persist job to backend (source of truth)
-    await apiFetch(`/api/job/${jobId}/meta`, {
-      method: 'POST',
-      body: JSON.stringify({ name }),
-    });
+// 📍 Get current location (optional but recommended)
+let latitude: number | null = null;
+let longitude: number | null = null;
+
+try {
+  const { status } =
+    await Location.requestForegroundPermissionsAsync();
+
+  if (status === 'granted') {
+    const location =
+      await Location.getCurrentPositionAsync({});
+    latitude = location.coords.latitude;
+    longitude = location.coords.longitude;
+
+    console.log('📍 Saving job with location:', latitude, longitude);
+  }
+} catch (e) {
+  console.log('⚠️ Location capture failed, continuing without it');
+}
+
+// 🔐 Persist job to backend (source of truth)
+await apiFetch(`/api/job/${jobId}/meta`, {
+  method: 'POST',
+  body: JSON.stringify({
+    name,
+    latitude,
+    longitude,
+  }),
+});
 
     // 1️⃣ Get tenant context
     const {

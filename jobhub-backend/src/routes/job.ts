@@ -27,9 +27,11 @@ router.get("/job/:jobId", async (req, res) => {
 const result = await pool.query(
   `
   SELECT 
-    id,
-    name,
-    is_template as "isTemplate"
+  id,
+  name,
+  is_template as "isTemplate",
+  latitude,
+  longitude
   FROM jobs
   WHERE id = $1
     AND tenant_id = $2
@@ -124,7 +126,7 @@ INSERT INTO notes (
 VALUES (
   $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, now())
 )
-      ON CONFLICT (id) DO UPDATE SET
+      ON CONFLICT (id) DO UPDATE SET 
         phase = EXCLUDED.phase,
         note_a = EXCLUDED.note_a,
         note_b = EXCLUDED.note_b,
@@ -230,24 +232,43 @@ router.post("/job/:jobId/meta", async (req, res) => {
     return res.status(400).json({ error: "Missing jobId" });
   }
 
-  const name =
-    typeof req.body?.name === "string"
-      ? req.body.name.trim()
-      : null;
+const name =
+  typeof req.body?.name === "string"
+    ? req.body.name.trim()
+    : null;
 
-  if (!name) {
-    return res.status(400).json({ error: "Missing job name" });
-  }
+const latitude =
+  typeof req.body?.latitude === "number"
+    ? req.body.latitude
+    : null;
+
+const longitude =
+  typeof req.body?.longitude === "number"
+    ? req.body.longitude
+    : null;
+
+if (!name && latitude === null && longitude === null) {
+  return res.status(400).json({ error: "Nothing to update" });
+}
+
+if ((latitude === null) !== (longitude === null)) {
+  return res.status(400).json({
+    error: "Provide both latitude and longitude",
+  });
+}
 
   try {
     await pool.query(
       `
-INSERT INTO jobs (id, name, tenant_id)
-VALUES ($1, $2, $3)
-ON CONFLICT (id)
-DO UPDATE SET name = EXCLUDED.name
+INSERT INTO jobs (id, name, tenant_id, latitude, longitude)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (id, tenant_id)
+DO UPDATE SET
+  name = COALESCE(EXCLUDED.name, jobs.name),
+  latitude = COALESCE(EXCLUDED.latitude, jobs.latitude),
+  longitude = COALESCE(EXCLUDED.longitude, jobs.longitude)
       `,
-      [jobId, name, tenantId]
+      [jobId, name, tenantId, latitude, longitude]
     );
 
     res.json({ success: true });
@@ -274,6 +295,8 @@ SELECT
   id,
   name,
   is_template as "isTemplate",
+  latitude,
+  longitude,
   created_at as "createdAt"
 FROM jobs
 WHERE tenant_id = $1

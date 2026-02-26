@@ -12,17 +12,71 @@ router.use(requireAuthWithTenant);
 router.get("/", async (req: any, res) => {
   const tenantId = req.user.tenantId;
 
-  const result = await pool.query(
-    `
-    SELECT id, name, position, active
-    FROM phases
-    WHERE tenant_id = $1
-    ORDER BY position ASC
-    `,
-    [tenantId]
-  );
+// 1️⃣ Base phases
+const result = await pool.query(
+  `
+  SELECT id, name, position, active
+  FROM phases
+  WHERE tenant_id = $1
+  ORDER BY position ASC
+  `,
+  [tenantId]
+);
 
-  res.json({ phases: result.rows });
+// 2️⃣ Phase groups
+const groupsRes = await pool.query(
+  `
+  SELECT id, name
+  FROM phase_groups
+  WHERE tenant_id = $1
+  `,
+  [tenantId]
+);
+
+const membersRes = await pool.query(
+  `
+  SELECT group_id, phase_name
+  FROM phase_group_members
+  WHERE tenant_id = $1
+  `,
+  [tenantId]
+);
+
+// 3️⃣ Build lookup
+const groupLookup: Record<string, { groupId: string; children: string[] }> = {};
+
+groupsRes.rows.forEach(g => {
+  groupLookup[g.name] = {
+    groupId: g.id,
+    children: [],
+  };
+});
+
+membersRes.rows.forEach(m => {
+  const group = groupsRes.rows.find(g => g.id === m.group_id);
+  if (group && groupLookup[group.name]) {
+    groupLookup[group.name].children.push(m.phase_name);
+  }
+});
+
+// 4️⃣ Enrich without breaking shape
+const enriched = result.rows.map(p => {
+  if (groupLookup[p.name]) {
+    return {
+      ...p,
+      groupId: groupLookup[p.name].groupId,
+      children: groupLookup[p.name].children,
+    };
+  }
+
+  return {
+    ...p,
+    groupId: null,
+    children: [],
+  };
+});
+
+res.json({ phases: enriched });
 });
 
 // POST /api/phases

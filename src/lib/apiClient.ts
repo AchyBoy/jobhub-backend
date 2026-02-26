@@ -59,7 +59,7 @@ console.log('🆔 x-device-session (outgoing) =', deviceSession, 'path=', path);
 
   if (!res.ok) {
     const text = await res.text();
-    console.log('❌ API ERROR', res.status, text);
+    console.log('❌ API ERROR', res.status, path, text);
 
 let parsed: any;
 

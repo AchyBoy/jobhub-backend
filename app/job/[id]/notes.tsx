@@ -368,7 +368,7 @@ const name = await fetchJobFromBackend(id);  if (name) {
 }
 
 async function loadPhases() {
-  // 1️⃣ Load local cache first (offline-first)
+  // 1️⃣ Load local cache first
   const stored = await AsyncStorage.getItem('phases');
 
   if (stored) {
@@ -378,26 +378,55 @@ async function loadPhases() {
     if (parsed.length && !currentPhase) {
       setCurrentPhase(parsed[0]);
       setExpandedPhases(prev => ({
-  ...prev,
-  [parsed[0]]: true,
-}));
+        ...prev,
+        [parsed[0]]: true,
+      }));
     }
   }
 
-  // 2️⃣ Fetch backend
-  const remote = await fetchPhasesFromBackend();
+  try {
+    // 2️⃣ Fetch both base phases + groups
+    const [phaseRes, groupRes] = await Promise.all([
+      apiFetch('/api/phases'),
+      apiFetch('/api/phase-groups'),
+    ]);
 
-  if (Array.isArray(remote)) {
-    setPhases(remote);
-    await AsyncStorage.setItem('phases', JSON.stringify(remote));
+    const basePhases: string[] =
+      phaseRes?.phases?.map((p: any) => p.name) ?? [];
 
-    if (remote.length && !currentPhase) {
-      setCurrentPhase(remote[0]);
+    const groupArray: any[] =
+      groupRes?.phaseGroups ?? [];
+
+    // Deduplicate grouped bucket names
+    const groupedPhases: string[] = Array.from(
+      new Set(
+        groupArray.map(
+          (g: any) => `Grouped Phase: ${g.basePhase}`
+        )
+      )
+    );
+
+    const merged: string[] = [...basePhases];
+
+    groupedPhases.forEach(gp => {
+      if (!merged.includes(gp)) {
+        merged.push(gp);
+      }
+    });
+
+    setPhases(merged);
+    await AsyncStorage.setItem('phases', JSON.stringify(merged));
+
+    if (merged.length && !currentPhase) {
+      setCurrentPhase(merged[0]);
       setExpandedPhases(prev => ({
-  ...prev,
-  [remote[0]]: true,
-}));
+        ...prev,
+        [merged[0]]: true,
+      }));
     }
+
+  } catch (err) {
+    console.warn('⚠️ Failed to load grouped phases', err);
   }
 }
 
@@ -806,7 +835,25 @@ await syncNotesToBackend(id, updated);
 
     {/* PHASE ACCORDION */}
 {allPhases.map(phase => {
-  const phaseNotes = notes.filter(n => n.phase === phase);
+  const isGroupedBucket = phase.startsWith('Grouped Phase: ');
+  let phaseNotes: JobNote[];
+
+if (phase.startsWith('Grouped Phase: ')) {
+  const base = phase.replace('Grouped Phase: ', '');
+
+  // Find all child phases of this grouped base
+  const groupedChildren = phases.filter(
+    p => p !== phase && p.includes(base)
+  );
+
+  phaseNotes = notes.filter(
+    n =>
+      n.phase === base ||
+      groupedChildren.includes(n.phase)
+  );
+} else {
+  phaseNotes = notes.filter(n => n.phase === phase);
+}
 
   // NOTE (future us):
 // activeNotes includes BOTH 'blank' and 'incomplete' items.
@@ -899,42 +946,48 @@ style={[
 ]}
             >
 {/* NOTE A — primary instruction */}
-{editMode ? (
-<TextInput
-  value={note.noteA ?? ''}
-  onChangeText={text =>
-    updateNoteField(note.id, 'noteA', text)
-  }
-  style={styles.noteText}
-  multiline
-  blurOnSubmit={true}
-  returnKeyType="done"
-  onSubmitEditing={() => Keyboard.dismiss()}
-/>
-) : (
-  <Text style={styles.noteText}>
-    {note.noteA ?? note.text}
-  </Text>
-)}
+<View style={styles.inputPillPrimary}>
+  {editMode ? (
+    <TextInput
+      value={note.noteA ?? ''}
+      onChangeText={text =>
+        updateNoteField(note.id, 'noteA', text)
+      }
+      style={styles.inputPillTextPrimary}
+      multiline
+      blurOnSubmit={true}
+      returnKeyType="done"
+      onSubmitEditing={() => Keyboard.dismiss()}
+    />
+  ) : (
+    <Text style={styles.inputPillTextPrimary}>
+      {note.noteA ?? note.text}
+    </Text>
+  )}
+</View>
 
 {/* NOTE B — clarification / context */}
-{editMode ? (
-<TextInput
-  value={note.noteB ?? ''}
-  onChangeText={text =>
-    updateNoteField(note.id, 'noteB', text)
-  }
-  placeholder="Add clarification…"
-  style={styles.noteSubText}
-  multiline
-  blurOnSubmit={true}
-  returnKeyType="done"
-  onSubmitEditing={() => Keyboard.dismiss()}
-/>
-) : note.noteB ? (
-  <Text style={styles.noteSubText}>
-    {note.noteB}
-  </Text>
+{note.noteB || editMode ? (
+  <View style={styles.inputPillSecondary}>
+    {editMode ? (
+      <TextInput
+        value={note.noteB ?? ''}
+        onChangeText={text =>
+          updateNoteField(note.id, 'noteB', text)
+        }
+        placeholder="Add clarification…"
+        style={styles.inputPillTextSecondary}
+        multiline
+        blurOnSubmit={true}
+        returnKeyType="done"
+        onSubmitEditing={() => Keyboard.dismiss()}
+      />
+    ) : (
+      <Text style={styles.inputPillTextSecondary}>
+        {note.noteB}
+      </Text>
+    )}
+  </View>
 ) : null}
 
 <Text
@@ -953,13 +1006,36 @@ style={[
     Autosave indicator — ACTIVE / CREW NOTES
     Slot is always rendered to prevent layout jump while typing */}
 <View style={styles.autosaveSlot}>
-  {editMode && saveStateByNote[note.id] ? (
-    <Text style={{ fontSize: 11, opacity: 0.5 }}>
-      {saveStateByNote[note.id] === 'saving'
-        ? 'saving…'
-        : 'saved'}
-    </Text>
-  ) : null}
+  <View
+    style={{
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    }}
+  >
+    {/* Autosave indicator */}
+    {editMode && saveStateByNote[note.id] ? (
+      <Text style={{ fontSize: 11, opacity: 0.5 }}>
+        {saveStateByNote[note.id] === 'saving'
+          ? 'saving…'
+          : 'saved'}
+      </Text>
+    ) : (
+      <View />
+    )}
+
+    {/* Root phase hint (only inside grouped bucket) */}
+    {isGroupedBucket && (
+      <Text
+        style={{
+          fontSize: 10,
+          opacity: 0.45,
+        }}
+      >
+        {note.phase}
+      </Text>
+    )}
+  </View>
 </View>
 
 {pendingCompletion[note.id] && (
@@ -1156,43 +1232,49 @@ onLongPress={() => {
   </View>
 )}
             {/* NOTE A — primary instruction */}
-            {editMode ? (
-<TextInput
-  value={note.noteA ?? ''}
-  onChangeText={text =>
-    updateNoteField(note.id, 'noteA', text)
-  }
-  style={styles.noteText}
-  multiline
-  blurOnSubmit={true}
-  returnKeyType="done"
-  onSubmitEditing={() => Keyboard.dismiss()}
-/>
-            ) : (
-              <Text style={styles.noteText}>
-                {note.noteA ?? note.text}
-              </Text>
-            )}
+<View style={styles.inputPillPrimary}>
+  {editMode ? (
+    <TextInput
+      value={note.noteA ?? ''}
+      onChangeText={text =>
+        updateNoteField(note.id, 'noteA', text)
+      }
+      style={styles.inputPillTextPrimary}
+      multiline
+      blurOnSubmit={true}
+      returnKeyType="done"
+      onSubmitEditing={() => Keyboard.dismiss()}
+    />
+  ) : (
+    <Text style={styles.inputPillTextPrimary}>
+      {note.noteA ?? note.text}
+    </Text>
+  )}
+</View>
 
             {/* NOTE B — clarification / context */}
-            {editMode ? (
-<TextInput
-  value={note.noteB ?? ''}
-  onChangeText={text =>
-    updateNoteField(note.id, 'noteB', text)
-  }
-  placeholder="Add clarification…"
-  style={styles.noteSubText}
-  multiline
-  blurOnSubmit={true}
-  returnKeyType="done"
-  onSubmitEditing={() => Keyboard.dismiss()}
-/>
-            ) : note.noteB ? (
-              <Text style={styles.noteSubText}>
-                {note.noteB}
-              </Text>
-            ) : null}
+  {note.noteB || editMode ? (
+  <View style={styles.inputPillSecondary}>
+    {editMode ? (
+      <TextInput
+        value={note.noteB ?? ''}
+        onChangeText={text =>
+          updateNoteField(note.id, 'noteB', text)
+        }
+        placeholder="Add clarification…"
+        style={styles.inputPillTextSecondary}
+        multiline
+        blurOnSubmit={true}
+        returnKeyType="done"
+        onSubmitEditing={() => Keyboard.dismiss()}
+      />
+    ) : (
+      <Text style={styles.inputPillTextSecondary}>
+        {note.noteB}
+      </Text>
+    )}
+  </View>
+) : null}
 
 <Text
   style={{
@@ -1329,9 +1411,9 @@ sub: {
   },
 
 noteCard: {
-  paddingVertical: 4,
-  paddingHorizontal: 6,
-  borderRadius: 12,
+  paddingVertical: 10,
+  paddingHorizontal: 10,
+  borderRadius: 16,
   backgroundColor: '#f3f4f6',
 },
 
@@ -1424,6 +1506,40 @@ phaseOption: {
 phaseOptionText: {
   fontSize: 13,
   fontWeight: '500',
+},
+
+inputPillPrimary: {
+  backgroundColor: '#fafafa',   // soft white (not pure white)
+  borderWidth: 1,
+  borderColor: '#e5e7eb',       // subtle gray border
+  paddingVertical: 12,
+  paddingHorizontal: 16,
+  borderRadius: 16,
+  alignSelf: 'stretch',
+  marginBottom: 8,
+},
+
+inputPillSecondary: {
+  backgroundColor: '#fafafa',   // exact match
+  borderWidth: 1,
+  borderColor: '#e5e7eb',
+  paddingVertical: 12,
+  paddingHorizontal: 16,
+  borderRadius: 16,
+  alignSelf: 'stretch',
+  marginBottom: 8,
+},
+
+inputPillTextPrimary: {
+  fontSize: 16,
+  fontWeight: '600',
+  color: '#0f172a',
+},
+
+inputPillTextSecondary: {
+  fontSize: 16,          // match primary
+  fontWeight: '600',     // match primary
+  color: '#0f172a',      // match primary
 },
 
   actionText: {

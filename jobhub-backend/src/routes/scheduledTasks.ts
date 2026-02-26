@@ -263,18 +263,48 @@ router.delete("/:id", async (req: any, res) => {
       [id, tenantId]
     );
 
-        // 3️⃣ Reset notes for that job/phase (NOT completed notes)
-    await pool.query(
-      `
-      UPDATE notes
-      SET status = 'blank'
-      WHERE tenant_id = $1
-        AND job_id = $2
-        AND phase = $3
-        AND status != 'complete'
-      `,
-      [tenantId, job_id, phase]
-    );
+// 3️⃣ Reset notes (handle grouped phases)
+let phasesToReset: string[] = [];
+
+if (phase?.startsWith("Grouped Phase: ")) {
+  const basePhase = phase.replace("Grouped Phase: ", "").trim();
+
+  // Include base phase
+  phasesToReset.push(basePhase);
+
+  // Fetch children
+  const childrenRes = await pool.query(
+    `
+    SELECT phase_name
+    FROM phase_group_members
+    WHERE tenant_id = $1
+      AND group_id IN (
+        SELECT id
+        FROM phase_groups
+        WHERE tenant_id = $1
+          AND base_phase = $2
+      )
+    `,
+    [tenantId, basePhase]
+  );
+
+  const children = childrenRes.rows.map(r => r.phase_name);
+  phasesToReset.push(...children);
+} else {
+  phasesToReset.push(phase);
+}
+
+await pool.query(
+  `
+  UPDATE notes
+  SET status = 'blank'
+  WHERE tenant_id = $1
+    AND job_id = $2
+    AND phase = ANY($3)
+    AND status != 'complete'
+  `,
+  [tenantId, job_id, phasesToReset]
+);
 
     res.json({ success: true });
   } catch (err) {

@@ -2,7 +2,7 @@
 import { Text, TextInput, StyleSheet, Pressable, View, ScrollView, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback } from 'react';
-
+import * as Location from 'expo-location';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -23,6 +23,10 @@ const [detailsExpanded, setDetailsExpanded] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
 const [crews, setCrews] = useState<any[]>([]);
 const [phases, setPhases] = useState<string[]>([]);
+const [jobCoords, setJobCoords] = useState<{
+  latitude: number | null;
+  longitude: number | null;
+}>({ latitude: null, longitude: null });
 const [noteSummary, setNoteSummary] = useState<{
   incomplete: number;
   complete: number;
@@ -31,6 +35,11 @@ const [isTemplate, setIsTemplate] = useState(false);
 const [jobName, setJobName] = useState<string>('Job');
 const [editingName, setEditingName] = useState(false);
 const [nameDraft, setNameDraft] = useState('');
+const [tenantId, setTenantId] = useState<string | null>(null);
+
+const [showJobSearch, setShowJobSearch] = useState(false);
+const [jobSearchQuery, setJobSearchQuery] = useState('');
+const [jobsIndex, setJobsIndex] = useState<any[]>([]);
 
     function handleCall(phone?: string | null) {
   if (!phone) return;
@@ -197,21 +206,89 @@ async function loadRole() {
   try {
     const res = await apiFetch('/api/tenant/me');
     setRole(res?.role ?? null);
+
+    const tid = res?.tenantId ?? null;
+    setTenantId(tid);
+
+    if (tid) {
+      await loadJobsIndex(tid);
+    }
   } catch {
     setRole(null);
+    setTenantId(null);
   }
 }
+
+async function loadJobsIndex(tid: string) {
+  const cacheKey = `jobs:${tid}`;
+
+  // 1) local first (instant)
+  try {
+    const cached = await AsyncStorage.getItem(cacheKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) setJobsIndex(parsed);
+    }
+  } catch {}
+
+  // 2) refresh from API
+  try {
+    const res = await apiFetch('/api/job'); // returns { jobs: [...] }
+    const jobs = Array.isArray(res?.jobs) ? res.jobs : [];
+    setJobsIndex(jobs);
+    await AsyncStorage.setItem(cacheKey, JSON.stringify(jobs));
+  } catch {}
+}
+
+const filteredJobs =
+  jobSearchQuery.trim().length === 0
+    ? []
+    : jobsIndex
+        .filter(j =>
+          String(j?.name ?? '')
+            .toLowerCase()
+            .includes(jobSearchQuery.trim().toLowerCase())
+        )
+        .slice(0, 8);
 
 async function loadPhases() {
   const local = await AsyncStorage.getItem('phases');
   if (local) setPhases(JSON.parse(local));
 
   try {
-    const res = await apiFetch('/api/phases');
-    const names = res?.phases?.map((p: any) => p.name) ?? [];
-    setPhases(names);
-    await AsyncStorage.setItem('phases', JSON.stringify(names));
-  } catch {}
+    const [phaseRes, groupRes] = await Promise.all([
+      apiFetch('/api/phases'),
+      apiFetch('/api/phase-groups'),
+    ]);
+
+    const basePhases =
+      phaseRes?.phases?.map((p: any) => p.name) ?? [];
+
+    const groupArray =
+      groupRes?.phaseGroups ?? [];
+
+// Deduplicate by basePhase
+const groupedPhases: string[] = Array.from(
+  new Set(
+    (groupArray as any[]).map(
+      (g: any) => `Grouped Phase: ${g.basePhase}`
+    )
+  )
+);
+
+const merged: string[] = [...basePhases];
+
+groupedPhases.forEach(gp => {
+  if (!merged.includes(gp)) {
+    merged.push(gp);
+  }
+});
+
+    setPhases(merged);
+    await AsyncStorage.setItem('phases', JSON.stringify(merged));
+  } catch (e) {
+    console.log('PHASE LOAD ERROR:', e);
+  }
 }
 
 async function loadAssignments() {
@@ -262,12 +339,95 @@ async function assignCrew(crewId: string, phase: string) {
 async function loadJob() {
   try {
     const res = await apiFetch(`/api/job/${id}`);
-    if (res?.job) {
-      setJobName(res.job.name);
-      setNameDraft(res.job.name);
-      setIsTemplate(!!res.job.isTemplate);
-    }
+if (res?.job) {
+  setJobName(res.job.name);
+  setNameDraft(res.job.name);
+  setIsTemplate(!!res.job.isTemplate);
+
+  setJobCoords({
+    latitude:
+      typeof res.job.latitude === 'number' ? res.job.latitude : null,
+    longitude:
+      typeof res.job.longitude === 'number' ? res.job.longitude : null,
+  });
+}
   } catch {}
+}
+
+function openJobInMaps() {
+  const lat = jobCoords.latitude;
+  const lng = jobCoords.longitude;
+
+  if (lat == null || lng == null) {
+    Alert.alert(
+      'No Location Set',
+      'This job does not have GPS coordinates yet. Hold the button to set location here.'
+    );
+    return;
+  }
+
+  const label = encodeURIComponent(jobName || 'Job');
+  // Apple Maps (works on iOS simulator)
+  const appleUrl = `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`;
+  // Google Maps fallback
+  const googleUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+
+  Linking.openURL(appleUrl).catch(() => Linking.openURL(googleUrl));
+}
+
+async function setLocationHereWithConfirm() {
+  if (role !== 'owner' && role !== 'admin') {
+    Alert.alert('Unauthorized');
+    return;
+  }
+
+  let latitude: number | null = null;
+  let longitude: number | null = null;
+
+  try {
+    const { status } = await Location.requestForegroundPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Location Denied', 'Enable location permissions to set job location.');
+      return;
+    }
+
+    const pos = await Location.getCurrentPositionAsync({});
+    latitude = pos.coords.latitude;
+    longitude = pos.coords.longitude;
+  } catch {
+    Alert.alert('Error', 'Failed to read current location.');
+    return;
+  }
+
+  Alert.alert(
+    'Set Job Location?',
+    `This will overwrite the job’s saved location.\n\nLat: ${latitude}\nLng: ${longitude}`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Set Location',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            // IMPORTANT: send name too, so backend never receives null for name
+            await apiFetch(`/api/job/${id}/meta`, {
+              method: 'POST',
+              body: JSON.stringify({
+                name: jobName,
+                latitude,
+                longitude,
+              }),
+            });
+
+            setJobCoords({ latitude, longitude });
+            Alert.alert('Saved', 'Job location updated.');
+          } catch {
+            Alert.alert('Error', 'Failed to save job location.');
+          }
+        },
+      },
+    ]
+  );
 }
 
 async function loadNoteSummary() {
@@ -317,7 +477,7 @@ loadNoteSummary();
   showsVerticalScrollIndicator={false}
 >
 
-<View style={{ marginTop: 20, marginBottom: 10 }}>
+<View style={{ marginTop: 6, marginBottom: 2 }}>
   {editingName ? (
     <>
       <TextInput
@@ -385,7 +545,7 @@ loadNoteSummary();
     style={{
       fontSize: 12,
       opacity: 0.45,
-      marginTop: 4,
+      marginTop: 1,
       letterSpacing: 0.3,
     }}
   >
@@ -400,7 +560,7 @@ loadNoteSummary();
 )}
 </View>
 
-<Text style={styles.sub}>Job ID: {id}</Text>
+
 {isTemplate && (
   <View
     style={{
@@ -438,12 +598,20 @@ loadNoteSummary();
 
   {/* 🔷 MANAGEMENT SECTION */}
   <View style={styles.sectionBlock}>
+  
+  <View style={{ marginBottom: 6 }}>
+  <View style={styles.idSearchRow}>
+    <Text style={styles.sub}>Job ID: {id}</Text>
+  </View>
+</View>
+
 
     {/* 🔷 JOB DETAILS (Collapsible) */}
     <Pressable
       style={styles.card}
       onPress={() => setDetailsExpanded(v => !v)}
     >
+
       <View style={styles.detailHeader}>
         <Text style={styles.cardTitle}>Job Details</Text>
         <Text style={styles.expandIcon}>
@@ -451,7 +619,34 @@ loadNoteSummary();
         </Text>
       </View>
 
-      <View style={{ marginTop: 10 }}>
+      {detailsExpanded && (
+        <View style={{ marginTop: 16, gap: 8 }}>
+
+                    <View style={{ marginTop: 12 }}>
+  <Text style={styles.detailLabel}>Location</Text>
+
+
+<Pressable
+  style={styles.locationPill}
+  onPress={openJobInMaps}
+  onLongPress={setLocationHereWithConfirm}
+  delayLongPress={450}
+>
+  <Text style={styles.locationTitle}>Set Location Here</Text>
+
+  <Text style={styles.locationHint}>
+    Tap to open map • Hold to overwrite with current GPS
+  </Text>
+
+  {jobCoords.latitude != null && jobCoords.longitude != null && (
+    <Text style={styles.locationCoords}>
+      {jobCoords.latitude.toFixed(5)}, {jobCoords.longitude.toFixed(5)}
+    </Text>
+  )}
+</Pressable>
+</View> 
+
+                <View style={{ marginTop: 10 }}>
 <Text style={styles.detailLabel}>Supervisors</Text>
 
 {jobSupervisors.length === 0 ? (
@@ -509,9 +704,7 @@ jobSupervisors.map((s: any, index: number) => {
 })
 )}
       </View>
-
-      {detailsExpanded && (
-        <View style={{ marginTop: 16, gap: 8 }}>
+      
 <Text style={styles.detailLabel}>Primary Contractor</Text>
 
 {jobContractor?.name ? (
@@ -795,7 +988,6 @@ return (
   </View>
 
 </View>
-
 </ScrollView>
 </SafeAreaView>
   );
@@ -839,12 +1031,12 @@ detailValue: {
     fontWeight: '700',
     marginBottom: 10,
   },
-  sub: {
-    fontSize: 16,
-    opacity: 0.7,
-  },
+sub: {
+  fontSize: 14,
+  opacity: 0.7,
+},
 actions: {
-  marginTop: 30,
+  marginTop: 1,
   gap: 12,
   width: '100%',
 },
@@ -887,6 +1079,112 @@ cardSub: {
   marginTop: 4,
   fontSize: 14,
   opacity: 0.7,
+},
+locationPill: {
+  marginTop: 8,
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  backgroundColor: '#f8fbff',   // same as assignedPill
+  borderRadius: 16,             // same radius style
+  alignSelf: 'stretch',
+  borderWidth: 1,
+  borderColor: '#dbeafe',       // same as assignedPill
+},
+
+locationTitle: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#1e40af',             // same vibe as assignedText
+  letterSpacing: 0.2,
+},
+
+locationHint: {
+  marginTop: 4,
+  fontSize: 12,
+  color: '#64748b',             // matches assignedMeta
+},
+searchTogglePill: {
+  paddingVertical: 6,
+  paddingHorizontal: 12,
+  backgroundColor: '#f8fbff',
+  borderRadius: 16,
+  alignSelf: 'flex-start',
+  borderWidth: 1,
+  borderColor: '#dbeafe',
+},
+
+searchToggleText: {
+  fontSize: 13,
+  fontWeight: '700',
+  color: '#1e40af',
+  letterSpacing: 0.2,
+},
+
+searchBoxWrap: {
+  marginTop: 10,
+},
+
+searchInput: {
+  borderWidth: 1,
+  borderColor: '#dbeafe',
+  backgroundColor: '#ffffff',
+  borderRadius: 12,
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  fontSize: 15,
+},
+
+searchResultsWrap: {
+  marginTop: 8,
+  borderWidth: 1,
+  borderColor: '#dbeafe',
+  backgroundColor: '#f8fbff',
+  borderRadius: 12,
+  overflow: 'hidden',
+},
+
+searchResultRow: {
+  paddingVertical: 10,
+  paddingHorizontal: 12,
+  borderBottomWidth: 1,
+  borderBottomColor: '#dbeafe',
+},
+
+searchResultName: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#1e40af',
+},
+
+searchResultMeta: {
+  marginTop: 2,
+  fontSize: 11,
+  color: '#64748b',
+},
+
+searchEmptyText: {
+  paddingVertical: 12,
+  paddingHorizontal: 12,
+  fontSize: 12,
+  color: '#64748b',
+},
+collapsedHint: {
+  marginTop: 8,
+  fontSize: 12,
+  color: '#64748b',
+  opacity: 0.75,
+},
+idSearchRow: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginTop: 4,
+},
+locationCoords: {
+  marginTop: 6,
+  fontSize: 12,
+  color: '#64748b',
+  opacity: 0.85,
 },
 assignedMeta: {
   fontSize: 11,

@@ -514,6 +514,11 @@ if (item.type === 'supervisor_phase_notes_sync') {
 if (item.type === 'scheduled_task_update') {
   const { taskId, ...updates } = item.payload;
 
+  // Ignore non-UUID IDs
+  if (!taskId || !taskId.includes('-')) {
+    continue;
+  }
+
   await apiFetch(`/api/scheduled-tasks/${taskId}`, {
     method: 'PATCH',
     body: JSON.stringify(updates),
@@ -522,6 +527,11 @@ if (item.type === 'scheduled_task_update') {
 
 if (item.type === 'scheduled_task_delete') {
   const { taskId } = item.payload;
+
+  // Ignore non-UUID IDs
+  if (!taskId || !taskId.includes('-')) {
+    continue;
+  }
 
   await apiFetch(`/api/scheduled-tasks/${taskId}`, {
     method: 'DELETE',

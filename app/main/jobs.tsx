@@ -1,6 +1,6 @@
 //JobHub/app/main/jobs.tsx
 
-import { View, Text, StyleSheet, FlatList, Pressable, Alert } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Pressable, Alert, TextInput } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { supabase } from '../../src/lib/supabase';
@@ -21,6 +21,7 @@ export default function JobsScreen() {
   const router = useRouter();
   const [role, setRole] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
 const [sortMode, setSortMode] = useState<
   'alpha-asc' | 'alpha-desc' | 'recent'
 >('recent');
@@ -270,10 +271,27 @@ async function deleteJob(job: Job) {
   }
 }
 
+const visibleJobs =
+  searchQuery.trim().length === 0
+    ? getSortedJobs(jobs)
+    : getSortedJobs(jobs).filter(job =>
+        job.name
+          .toLowerCase()
+          .includes(searchQuery.trim().toLowerCase())
+      );
+
 return (
 <>
   <Stack.Screen options={{ title: 'Jobs' }} />
   <View style={styles.container}>
+
+  <TextInput
+  value={searchQuery}
+  onChangeText={setSearchQuery}
+  placeholder="Search jobs..."
+  autoCorrect={false}
+  style={styles.searchInput}
+/>
 
 <View style={styles.headerRow}>
 
@@ -303,7 +321,7 @@ return (
         <Text style={styles.empty}>No jobs yet. Tap “Add Job”.</Text>
       ) : (
         <FlatList
-          data={getSortedJobs(jobs)}
+          data={visibleJobs}
           keyExtractor={(item) => item.id}
           contentContainerStyle={{ paddingBottom: 40 }}
           renderItem={({ item }) => (
@@ -458,6 +476,15 @@ templateBadge: {
   alignSelf: 'flex-start',
   backgroundColor: '#fee2e2',
   color: '#b91c1c',
+},
+searchInput: {
+  borderWidth: 1,
+  borderColor: '#d1d5db',
+  borderRadius: 12,
+  paddingVertical: 10,
+  paddingHorizontal: 14,
+  marginBottom: 16,
+  fontSize: 16,
 },
 
 templateCard: {
