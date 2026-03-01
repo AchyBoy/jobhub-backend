@@ -14,6 +14,114 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  async function handleLoginWithCredentials(
+  loginEmail: string,
+  loginPassword: string
+) {
+  setLoading(true);
+  setError(null);
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: loginEmail,
+    password: loginPassword,
+  });
+
+  if (error || !data.session) {
+    setError(error?.message || 'Login failed');
+    setLoading(false);
+    return;
+  }
+
+  const { data: freshSessionData } = await supabase.auth.getSession();
+
+  if (!freshSessionData.session?.access_token) {
+    await supabase.auth.signOut();
+    setLoading(false);
+    return;
+  }
+
+  try {
+    const me = await apiFetch('/api/tenant/me');
+
+    if (me.needsCompany) {
+      router.replace('/create-company');
+      return;
+    }
+
+    if (me.mustChangePassword) {
+      router.replace('/update-password');
+      return;
+    }
+
+    await apiFetch('/api/tenant/session');
+
+    await AsyncStorage.setItem('savedEmail', loginEmail);
+    await AsyncStorage.setItem('savedPassword', loginPassword);
+
+    router.replace('/main');
+
+} catch (err: any) {
+
+  const isSessionConflict =
+    err?.code === 'SESSION_CONFLICT' ||
+    err?.message?.includes('SESSION_CONFLICT') ||
+    err?.message?.includes('Another device');
+
+  if (isSessionConflict) {
+
+    Alert.alert(
+      "Session Active",
+      "This account is active on another device.\n\nTake over this session?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: async () => {
+            await supabase.auth.signOut();
+          },
+        },
+        {
+          text: "Take Over",
+          style: "destructive",
+          onPress: async () => {
+            try {
+
+              const newDeviceSession =
+                `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+              await AsyncStorage.setItem(
+                'deviceSessionId',
+                newDeviceSession
+              );
+
+              await apiFetch('/api/tenant/takeover', {
+                method: 'POST',
+              });
+
+              await apiFetch('/api/tenant/session');
+
+              await AsyncStorage.setItem('savedEmail', loginEmail);
+              await AsyncStorage.setItem('savedPassword', loginPassword);
+
+              router.replace('/main');
+
+            } catch (takeErr) {
+              console.warn('Takeover failed:', takeErr);
+              await supabase.auth.signOut();
+            }
+          },
+        },
+      ],
+      { cancelable: false }
+    );
+
+  } else {
+    console.warn('Login verification failed:', err);
+    await supabase.auth.signOut();
+  }
+}
+}
+
 async function handleBiometricLogin() {
   try {
     const savedEmail = await AsyncStorage.getItem('savedEmail');
@@ -30,194 +138,20 @@ async function handleBiometricLogin() {
 
     if (!result.success) return;
 
-    // Run full normal login flow
+    // 🔥 Call the SAME login function
     setEmail(savedEmail);
     setPassword(savedPassword);
 
-    setLoading(true);
-    setError(null);
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: savedEmail,
-      password: savedPassword,
-    });
-
-    if (error || !data.session) {
-      Alert.alert('Login Failed', 'Saved credentials are invalid.');
-      setLoading(false);
-      return;
-    }
-
-    await apiFetch('/api/tenant/session');
-
-    router.replace('/main');
+    await handleLoginWithCredentials(savedEmail, savedPassword);
 
   } catch (err) {
     console.warn('Biometric login error:', err);
   }
 }
 
-  async function handleLogin() {
-    setLoading(true);
-    setError(null);
-
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    console.log('🟢 LOGIN result', {
-      hasSession: !!data?.session,
-      userId: data?.user?.id,
-      error: error?.message,
-    });
-
-  if (error) {
-  setError(error.message);
-  setLoading(false);
-  return;
+async function handleLogin() {
+  await handleLoginWithCredentials(email, password);
 }
-
-if (!data.session) {
-  setError('No session returned. If this is a new account, confirm the email link first.');
-  setLoading(false);
-  return;
-}
-
-// Force-refresh session to ensure token is available immediately
-const { data: freshSessionData, error: sessionError } = await supabase.auth.getSession();
-if (sessionError || !freshSessionData.session?.access_token) {
-  setError('Failed to retrieve access token after login.');
-  await supabase.auth.signOut();
-  setLoading(false);
-  return;
-}
-
-console.log('Fresh token retrieved after login:', freshSessionData.session.access_token.substring(0, 10) + '...');
-
-try {
-  // 🔎 Check provisioning state FIRST
-  const me = await apiFetch('/api/tenant/me');
-
-  // 🆕 No company yet → go create one
-  if (me.needsCompany) {
-    console.log('🆕 User not provisioned — redirecting to create company');
-    router.replace('/create-company');
-    setLoading(false);
-    return;
-  }
-
-  // 🔐 Must change password
-  if (me.mustChangePassword) {
-    console.log('🔑 User must change password — redirecting');
-    router.replace('/update-password');
-    setLoading(false);
-    return;
-  }
-
-// 🔐 Verify session ownership (device enforcement)
-await apiFetch('/api/tenant/session');
-
-// ✅ SAVE FOR FACE ID
-await AsyncStorage.setItem('savedEmail', email);
-await AsyncStorage.setItem('savedPassword', password);
-
-// 🔎 DEBUG: confirm it saved
-const debugEmail = await AsyncStorage.getItem('savedEmail');
-const debugPassword = await AsyncStorage.getItem('savedPassword');
-
-console.log('🧠 SAVED EMAIL:', debugEmail);
-console.log('🧠 SAVED PASSWORD EXISTS:', !!debugPassword);
-
-router.replace('/main');
-
-  setLoading(false);
-  return;
-
-} catch (err: any) {
-
-  // 🔒 Detect session conflict
-  if (err?.message?.includes('SESSION_CONFLICT') || err?.message?.includes('Another device')) {
-
-Alert.alert(
-  "Session Active",
-  "This account is active on another device.\n\nTake over this session?",
-  [
-    {
-      text: "Cancel",
-      style: "cancel",
-      onPress: async () => {
-        await supabase.auth.signOut();
-        setLoading(false);
-      },
-    },
-{
-  text: "Take Over",
-  style: "destructive",
-  onPress: async () => {
-    try {
-      // Optional: Quick sanity check (don't throw – just log)
-      const currentSession = await supabase.auth.getSession();
-      const tokenPreview = currentSession.data.session?.access_token?.substring(0, 10) + '...' || 'MISSING';
-      console.log('Token at takeover attempt:', tokenPreview);
-
-      // If token truly missing here, force sign-out to break loop
-      if (!currentSession.data.session?.access_token) {
-        console.warn('No token during takeover – forcing sign out');
-        await supabase.auth.signOut();
-        Alert.alert('Session Issue', 'Authentication token not available. Please log in again.');
-        setLoading(false);
-        return;
-      }
-
-      const newDeviceSession = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-      await AsyncStorage.setItem('deviceSessionId', newDeviceSession);
-
-      // Flush delay – increase slightly if still flaky on your device
-      await new Promise(r => setTimeout(r, 200));
-
-      console.log('Calling takeover with device session:', newDeviceSession);
-
-      await apiFetch('/api/tenant/takeover', { method: 'POST' });
-
-console.log('Takeover succeeded – verifying ownership');
-
-await apiFetch('/api/tenant/session');
-
-console.log('Verify passed – navigating to main');
-
-router.replace('/main');
-    } catch (err: any) {
-      console.error('Takeover failed:', err);
-      let msg = "Unable to take over session. Please try again.";
-      
-      if (err.message?.includes('Missing Authorization header')) {
-        msg = "Login session invalid during takeover – please log in again.";
-        await supabase.auth.signOut(); // Clean up
-      } else if (err.message?.includes('SESSION_CONFLICT')) {
-        msg = "Another device still holds the session. Try again in a moment.";
-      }
-      
-      setError(msg);
-      Alert.alert('Takeover Failed', msg);
-    } finally {
-      setLoading(false);
-    }
-  },
-},
-  ],
-  { cancelable: false }
-);
-
-return;
-
-  }
-
-  setError("Login verification failed.");
-  setLoading(false);
-  return;
-}
-  }
 
   return (
     <View style={styles.container}>
