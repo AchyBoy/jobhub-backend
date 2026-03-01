@@ -5,6 +5,7 @@ import { supabase } from '../../src/lib/supabase';
 import { router } from 'expo-router';
 import { apiFetch } from '../../src/lib/apiClient';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 
 export default function LoginScreen() {
@@ -12,6 +13,42 @@ export default function LoginScreen() {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleBiometricLogin() {
+  try {
+    const savedEmail = await AsyncStorage.getItem('savedEmail');
+    const savedPassword = await AsyncStorage.getItem('savedPassword');
+
+    if (!savedEmail || !savedPassword) {
+      Alert.alert('No saved credentials', 'Log in manually once first.');
+      return;
+    }
+
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: 'Login with Face ID',
+    });
+
+    if (!result.success) return;
+
+    // Fill fields
+    setEmail(savedEmail);
+    setPassword(savedPassword);
+
+    // Run normal login
+    await supabase.auth.signInWithPassword({
+      email: savedEmail,
+      password: savedPassword,
+    });
+
+    await AsyncStorage.setItem('savedEmail', email);
+await AsyncStorage.setItem('savedPassword', password);
+
+    router.replace('/main');
+
+  } catch (err) {
+    console.warn('Biometric login error:', err);
+  }
+}
 
   async function handleLogin() {
     setLoading(true);
@@ -200,6 +237,16 @@ return;
           {loading ? 'Logging in…' : 'Login'}
         </Text>
       </Pressable>
+
+      <Pressable
+  style={[styles.button, { backgroundColor: '#111' }]}
+  onPress={handleBiometricLogin}
+>
+  <Text style={styles.buttonText}>
+    Login with Face ID
+  </Text>
+</Pressable>
+
     </View>
   );
 }

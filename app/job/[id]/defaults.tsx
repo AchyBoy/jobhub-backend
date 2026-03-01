@@ -6,6 +6,7 @@ import {
   StyleSheet,
   Pressable,
   ScrollView,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, Stack } from 'expo-router';
@@ -14,6 +15,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../../src/lib/apiClient';
 import { useFocusEffect } from 'expo-router';
 import { useCallback } from 'react';
+import * as DocumentPicker from 'expo-document-picker';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 export default function JobDefaultsScreen() {
@@ -29,6 +31,8 @@ const [loadingState, setLoadingState] = useState({
 
   const [supervisors, setSupervisors] = useState<any[]>([]);
   const [contractors, setContractors] = useState<any[]>([]);
+  const [jobPdfId, setJobPdfId] = useState<string | null>(null);
+const [uploadingPdf, setUploadingPdf] = useState(false);
 const [vendors, setVendors] = useState<any[]>([]);
 const [permitCompanies, setPermitCompanies] = useState<any[]>([]);
 
@@ -235,10 +239,73 @@ setTimeout(() => {
   backgroundRefresh();
 }, 0);
 
+// 🔥 Load existing PDF pointer
+try {
+  const jobRes = await apiFetch(`/api/job/${jobId}`);
+  setJobPdfId(jobRes?.job?.pdfId ?? null);
+} catch {}
+
     console.log(`✅ defaults.load() DONE total=${msSince(T0)}ms`);
   } catch (e) {
     console.log(`❌ defaults.load() FAILED total=${msSince(T0)}ms`, e);
     // silent offline mode
+  }
+}
+
+async function uploadPdf() {
+  try {
+    const result = await DocumentPicker.getDocumentAsync({
+      type: 'application/pdf',
+      copyToCacheDirectory: true,
+    });
+
+    if (result.canceled) return;
+
+    const file = result.assets[0];
+
+    setUploadingPdf(true);
+
+    const formData = new FormData();
+    formData.append('jobId', jobId);
+    formData.append('pdf', {
+      uri: file.uri,
+      name: file.name,
+      type: 'application/pdf',
+    } as any);
+
+    const res = await apiFetch('/api/job-pdfs/upload', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      body: formData,
+    });
+
+    const fileId = res?.file?.id;
+
+    if (!fileId) {
+      throw new Error('Upload failed');
+    }
+
+    // 🔥 Attach to job
+    await apiFetch(`/api/job/${jobId}/meta`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: null,
+        latitude: null,
+        longitude: null,
+        pdfId: fileId,
+      }),
+    });
+
+    setJobPdfId(fileId);
+
+    Alert.alert('Success', 'PDF uploaded and attached to job.');
+  } catch (e) {
+    console.log(e);
+    Alert.alert('Error', 'Failed to upload PDF.');
+  } finally {
+    setUploadingPdf(false);
   }
 }
 
@@ -730,6 +797,22 @@ const allLoaded =
     </Text>
   </Pressable>
 ))}
+
+<Text style={styles.section}>Job PDF</Text>
+
+<Pressable
+  style={styles.row}
+  onPress={uploadPdf}
+  disabled={uploadingPdf}
+>
+  <Text>
+    {uploadingPdf
+      ? 'Uploading...'
+      : jobPdfId
+      ? 'Replace PDF'
+      : 'Upload PDF'}
+  </Text>
+</Pressable>
         </ScrollView>
       </SafeAreaView>
     </>
@@ -759,3 +842,4 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
 });
+

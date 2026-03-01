@@ -18,6 +18,8 @@ import phaseGroupsRouter from './routes/phaseGroups';
 import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
 import pushRoutes from "./routes/push";
+import jobPdfsRoutes from "./routes/jobPdfs";
+
 import { activateDuePhases } from "./automation/activateDuePhases";
 import contractorPhaseNotes from "./routes/contractorPhaseNotes";
 import ordersRouter from "./routes/orders";
@@ -86,6 +88,7 @@ app.use("/api/permit-companies", permitCompaniesRoutes);
 app.use("/api/jobs", jobPermitCompaniesRoutes);
 app.use("/api/inspections", inspectionsRoutes);
 app.use("/api/jobs", jobInspectionsRoutes);
+app.use("/api/job-pdfs", jobPdfsRoutes);
 app.use("/api/scheduled-tasks", scheduledTasksRoutes);
 app.use("/api/materials", materialsRoutes);
 app.use("/api/orders", ordersRouter);

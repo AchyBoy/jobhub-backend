@@ -82,6 +82,7 @@ const id = idParam;
   const [notes, setNotes] = useState<JobNote[]>([]);
   const latestNotesRef = useRef<JobNote[]>([]);
   const noteSaveTimers = useRef<Record<string, any>>({});
+  const noteRefs = useRef<Record<string, any>>({});
 const [phasePickerForNote, setPhasePickerForNote] =
   useState<string | null>(null);
   const [searchFocused, setSearchFocused] = useState(false);
@@ -377,10 +378,6 @@ async function loadPhases() {
 
     if (parsed.length && !currentPhase) {
       setCurrentPhase(parsed[0]);
-      setExpandedPhases(prev => ({
-        ...prev,
-        [parsed[0]]: true,
-      }));
     }
   }
 
@@ -419,10 +416,6 @@ async function loadPhases() {
 
     if (merged.length && !currentPhase) {
       setCurrentPhase(merged[0]);
-      setExpandedPhases(prev => ({
-        ...prev,
-        [merged[0]]: true,
-      }));
     }
 
   } catch (err) {
@@ -494,50 +487,59 @@ function triggerCompleteWithUndo(noteId: string) {
   if (!id) return;
   const jobId = id;
 
-  const original = notes.find(n => n.id === noteId);
+  const original = latestNotesRef.current.find(
+    (n: JobNote) => n.id === noteId
+  );
   if (!original) return;
 
-  // 1️⃣ Optimistic UI: mark visually complete but DO NOT change status yet
-  const optimistic: JobNote[] = notes.map(n =>
-    n.id === noteId
-      ? {
-          ...n,
-          officeCompletedAt: new Date().toISOString(),
-        }
-      : n
-  );
-
-  setNotes(optimistic);
-
-  // 2️⃣ Start undo timer
-  const timer = setTimeout(async () => {
-    // 3️⃣ Finalize: now actually move to completed bucket
-    const finalized: JobNote[] = optimistic.map(n =>
+  // 1️⃣ Optimistic update
+  setNotes((prev: JobNote[]) => {
+    const updated: JobNote[] = prev.map((n: JobNote) =>
       n.id === noteId
         ? {
             ...n,
-            status: 'complete',
+            officeCompletedAt: new Date().toISOString(),
           }
         : n
     );
 
-    setNotes(finalized);
+    latestNotesRef.current = updated;
+    return updated;
+  });
 
-    await AsyncStorage.setItem(
-      `job:${jobId}:notes`,
-      JSON.stringify(finalized)
-    );
+  // 2️⃣ Start undo timer
+  const timer = setTimeout(() => {
+    setNotes((prev: JobNote[]) => {
+      const finalized: JobNote[] = prev.map((n: JobNote) =>
+        n.id === noteId
+          ? {
+              ...n,
+              status: 'complete',
+            }
+          : n
+      );
 
-    await syncNotesToBackend(jobId, finalized);
+      latestNotesRef.current = finalized;
 
-    setPendingCompletion(prev => {
+      // persist + sync OUTSIDE async context safely
+      AsyncStorage.setItem(
+        `job:${jobId}:notes`,
+        JSON.stringify(finalized)
+      );
+
+      syncNotesToBackend(jobId, finalized);
+
+      return finalized;
+    });
+
+    setPendingCompletion((prev: Record<string, any>) => {
       const { [noteId]: _, ...rest } = prev;
       return rest;
     });
   }, 3000);
 
-  // 4️⃣ Store undo state
-  setPendingCompletion(prev => ({
+  // 3️⃣ Store undo state
+  setPendingCompletion((prev: Record<string, any>) => ({
     ...prev,
     [noteId]: {
       original,
@@ -756,12 +758,26 @@ await syncNotesToBackend(id, updated);
       }}
     >
       <ScrollView keyboardShouldPersistTaps="handled">
-        {notes
-          .filter(n =>
-            (n.noteA + ' ' + (n.noteB ?? ''))
-              .toLowerCase()
-              .includes(searchQuery.toLowerCase())
-          )
+{notes
+  .filter(n => {
+    const query = searchQuery.toLowerCase().trim();
+
+    // If query matches a phase name → filter by phase
+    const phaseMatch = allPhases.find(p =>
+      p.toLowerCase() === query
+    );
+
+    if (phaseMatch) {
+      return n.phase === phaseMatch;
+    }
+
+    // Otherwise search note text
+    return (
+      (n.noteA + ' ' + (n.noteB ?? ''))
+        .toLowerCase()
+        .includes(query)
+    );
+  })
           .slice(0, 20)
           .map(n => (
             <Pressable
@@ -775,16 +791,24 @@ await syncNotesToBackend(id, updated);
                 Keyboard.dismiss();
                 setHighlightedNote(n.id);
 
-                setTimeout(() => {
-                  const y = notePositions.current[n.id];
-                  if (y != null && scrollRef.current) {
-                    scrollRef.current.scrollTo({
-                      y: y - 20,
-                      animated: true,
-                    });
-                  }
-                  setHighlightedNote(null);
-                }, 150);
+setTimeout(() => {
+  const node = noteRefs.current[n.id];
+  if (node && scrollRef.current) {
+node.measureLayout(
+  // @ts-ignore
+  scrollRef.current,
+  (_x: number, y: number) => {
+    scrollRef.current?.scrollTo({
+      y: y - 20,
+      animated: true,
+    });
+  },
+  () => {}
+);
+  }
+
+  setHighlightedNote(null);
+}, 150);
               }}
               style={{
                 paddingVertical: 12,
@@ -842,9 +866,14 @@ if (phase.startsWith('Grouped Phase: ')) {
   const base = phase.replace('Grouped Phase: ', '');
 
   // Find all child phases of this grouped base
-  const groupedChildren = phases.filter(
-    p => p !== phase && p.includes(base)
-  );
+  const groupedChildren = phases
+    .filter(p => p !== phase && p.includes(base))
+    .sort((a, b) =>
+      a.localeCompare(b, undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      })
+    );
 
   phaseNotes = notes.filter(
     n =>
@@ -861,22 +890,38 @@ if (phase.startsWith('Grouped Phase: ')) {
 // UI intentionally shows both together for now.
 const activeNotes = phaseNotes
   .filter(n => n.status !== 'complete')
-  .sort((a, b) => {
-    // Primary: numeric id ascending
-    const aId = Number(a.id);
-    const bId = Number(b.id);
-
-    if (!isNaN(aId) && !isNaN(bId)) {
-      return aId - bId;
-    }
-
-    // Fallback: string compare
-    return a.id.localeCompare(b.id);
+.sort((a, b) => {
+  // 1️⃣ First sort by phase name
+  const phaseCompare = a.phase.localeCompare(b.phase, undefined, {
+    numeric: true,
+    sensitivity: 'base',
   });
+
+  if (phaseCompare !== 0) return phaseCompare;
+
+  // 2️⃣ Then sort by numeric id
+  const aId = Number(a.id);
+  const bId = Number(b.id);
+
+  if (!isNaN(aId) && !isNaN(bId)) {
+    return aId - bId;
+  }
+
+  return a.id.localeCompare(b.id);
+});
 
 const officeCompleted = phaseNotes
   .filter(n => n.status === 'complete')
   .sort((a, b) => {
+    // 1️⃣ First sort by phase name
+    const phaseCompare = a.phase.localeCompare(b.phase, undefined, {
+      numeric: true,
+      sensitivity: 'base',
+    });
+
+    if (phaseCompare !== 0) return phaseCompare;
+
+    // 2️⃣ Then sort by numeric id
     const aId = Number(a.id);
     const bId = Number(b.id);
 
@@ -889,21 +934,56 @@ const officeCompleted = phaseNotes
 
   return (
     <View key={phase} style={{ marginBottom: 24 }}>
-      {/* Phase Header */}
-      <Pressable
-onPress={() => {
-  setExpandedPhases(prev => ({
-    ...prev,
-    [phase]: true,
-  }));
-}}
-      >
-<Text style={styles.sectionTitle}>
-  {expandedPhases[phase] ? '▼' : '▶'} {phase}
-</Text>
-      </Pressable>
+{/* Phase Header */}
+<Pressable
+  onPress={() => {
+    setExpandedPhases(prev => ({
+      ...prev,
+      [phase]: !prev[phase],
+    }));
+  }}
+>
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    <Text style={styles.sectionTitle}>
+      {expandedPhases[phase] ? '▼' : '▶'} {phase}
+    </Text>
 
-      {expandedPhases[phase] && (
+{/* Incomplete Badge */}
+{(() => {
+  const incompleteCount = phaseNotes.filter(
+    n => n.status === 'incomplete'
+  ).length;
+
+  if (incompleteCount === 0) return null;
+
+  return (
+    <View
+      style={{
+        marginLeft: 8,
+        backgroundColor: '#fef3c7',
+        paddingHorizontal: 8,
+        paddingVertical: 2,
+        borderRadius: 999,
+        minWidth: 20,
+        alignItems: 'center',
+      }}
+    >
+      <Text
+        style={{
+          fontSize: 11,
+          fontWeight: '700',
+          color: '#b45309',
+        }}
+      >
+        {incompleteCount}
+      </Text>
+    </View>
+  );
+})()}
+  </View>
+</Pressable>
+
+      {!searchQuery && expandedPhases[phase] && (
         <View style={{ gap: 12 }}>
           {/* ACTIVE / CREW NOTES */}
           {activeNotes.map(note => (
@@ -927,9 +1007,9 @@ onLongPress={() => {
   );
 }}
   onPress={() => handleNoteTap(note.id, phase)}
-  onLayout={e => {
-    notePositions.current[note.id] = e.nativeEvent.layout.y;
-  }}
+ref={r => {
+  if (r) noteRefs.current[note.id] = r;
+}}
 style={[
   styles.noteCard,
   note.status === 'incomplete' && {
@@ -1068,7 +1148,7 @@ style={[
               {/* NOTE: office-only action to move an item to another phase */}
 
 {editMode && (
-  <View style={{ marginTop: 10 }}>
+  <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
     <Pressable
       onPress={() =>
         setPhasePickerForNote(prev =>
@@ -1082,15 +1162,20 @@ style={[
       </Text>
     </Pressable>
 
-{editMode && note.status !== 'blank' && (
-  <Pressable
-    style={[styles.action, { marginTop: 6 }]}
-    onPress={() => markOfficeBlank(note.id)}
-  >
-    <Text style={styles.actionText}>
-      Reset to blank
-    </Text>
-  </Pressable>
+{editMode && (
+  <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
+    <Pressable
+      onPress={(e) => {
+        e.stopPropagation();
+        triggerCompleteWithUndo(note.id);
+      }}
+      style={styles.pillComplete}
+    >
+      <Text style={styles.pillTextBlue}>
+        Mark Complete
+      </Text>
+    </Pressable>
+  </View>
 )}
 
     {phasePickerForNote === note.id && (
@@ -1116,42 +1201,68 @@ style={[
   </View>
 )}
 
-              {note.crewCompletedAt && (
-                <Text style={styles.meta}>
-                  Crew completed:{' '}
-                  {new Date(
-                    note.crewCompletedAt
-                  ).toLocaleDateString()}
-                </Text>
-              )}
-
-              {editMode && !note.markedCompleteBy && (
-
-                <Pressable
-                  style={styles.action}
-                  onPress={() =>
-                    markAttemptedComplete(note.id, 'crew')
-                  }
-                >
-                  <Text style={styles.actionText}>
-                    Crew mark complete
-                  </Text>
-                </Pressable>
-              )}
+{editMode && (
+  <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
+    {!note.markedCompleteBy ? (
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          markAttemptedComplete(note.id, 'crew');
+        }}
+        style={styles.pillCrewComplete}
+      >
+        <Text style={styles.pillText}>
+          Crew Complete
+        </Text>
+      </Pressable>
+    ) : (
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          markOfficeIncomplete(note.id);
+        }}
+        style={styles.pillSoftReject}
+      >
+        <Text style={styles.pillTextDark}>
+          Mark Incomplete
+        </Text>
+      </Pressable>
+    )}
+  </View>
+)}
 
 {editMode && (
-  <Pressable
-    style={[styles.action, { marginTop: 6 }]}
-    onPress={(e) => {
-  e.stopPropagation();
-  triggerCompleteWithUndo(note.id);
-}}
-  >
-    <Text style={styles.actionText}>
-      Office mark complete
-    </Text>
-  </Pressable>
+  <View style={{ alignItems: 'flex-end', marginTop: 10 }}>
+    {note.status === 'blank' && (
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          markOfficeIncomplete(note.id);
+        }}
+        style={styles.pillIncomplete}
+      >
+        <Text style={styles.pillTextDark}>
+          Mark Incomplete
+        </Text>
+      </Pressable>
+    )}
+
+    {note.status !== 'blank' && (
+      <Pressable
+        onPress={(e) => {
+          e.stopPropagation();
+          markOfficeBlank(note.id);
+        }}
+        style={styles.pillBlank}
+      >
+        <Text style={styles.pillTextDark}>
+          Reset to Blank
+        </Text>
+      </Pressable>
+    )}
+  </View>
 )}
+
             </Pressable>
           ))}
 
@@ -1199,9 +1310,9 @@ onLongPress={() => {
   );
 }}
   onPress={() => handleCompletedTap(phase)}
-  onLayout={e => {
-    notePositions.current[note.id] = e.nativeEvent.layout.y;
-  }}
+ref={r => {
+  if (r) noteRefs.current[note.id] = r;
+}}
   style={[
               styles.noteCard,
               { opacity: 0.6 },
@@ -1474,17 +1585,17 @@ autosaveSlot: {
     alignItems: 'flex-end',
   },
 
-  phaseButton: {
+phaseButton: {
   paddingVertical: 6,
-  paddingHorizontal: 12,
+  paddingHorizontal: 14,
   borderRadius: 999,
-  backgroundColor: '#e5e7eb',
-  alignSelf: 'flex-start',
+  backgroundColor: '#e2e8f0', // match Reset to Blank tone
 },
 
 phaseButtonText: {
   fontSize: 12,
-  fontWeight: '600',
+  fontWeight: '700',
+  color: '#334155',
 },
 
 phaseDropdown: {
@@ -1540,6 +1651,73 @@ inputPillTextSecondary: {
   fontSize: 16,          // match primary
   fontWeight: '600',     // match primary
   color: '#0f172a',      // match primary
+},
+
+pillComplete: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#dbeafe', // soft blue
+},
+
+pillTextBlue: {
+  fontSize: 12,
+  fontWeight: '700',
+  color: '#1e40af',
+},
+
+pillApprove: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#16a34a',
+},
+
+pillReject: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#dc2626',
+},
+
+pillText: {
+  fontSize: 12,
+  fontWeight: '700',
+  color: '#fff',
+},
+
+pillCrewComplete: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#3b82f6', // soft blue
+},
+
+pillSoftReject: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#fee2e2', // soft red
+},
+
+pillTextDark: {
+  fontSize: 12,
+  fontWeight: '700',
+  color: '#991b1b', // deep muted red text
+},
+
+pillBlank: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#e2e8f0', // soft slate gray
+},
+
+pillIncomplete: {
+  paddingVertical: 6,
+  paddingHorizontal: 14,
+  borderRadius: 999,
+  backgroundColor: '#fef3c7', // soft amber
 },
 
   actionText: {

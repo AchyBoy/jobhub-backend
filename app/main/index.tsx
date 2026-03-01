@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Pressable, TextInput } from 'react-native';
 import { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
 import { apiFetch } from '../../src/lib/apiClient';
+import { supabase } from '../../src/lib/supabase';
 import { useRouter } from 'expo-router';
 
 export default function MainHome() {
@@ -12,9 +13,15 @@ export default function MainHome() {
   const [allJobs, setAllJobs] = useState<any[]>([]);
 const [searchQuery, setSearchQuery] = useState('');
 
-  useEffect(() => {
+useEffect(() => {
+  async function startIfAuthenticated() {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) return; // 🚫 Don't fetch jobs if not logged in
     initLocation();
-  }, []);
+  }
+
+  startIfAuthenticated();
+}, []);
 
   async function initLocation() {
     console.log('🔍 Requesting location permission');

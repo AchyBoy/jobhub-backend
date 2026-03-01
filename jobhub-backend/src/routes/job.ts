@@ -27,11 +27,12 @@ router.get("/job/:jobId", async (req, res) => {
 const result = await pool.query(
   `
   SELECT 
-  id,
-  name,
-  is_template as "isTemplate",
-  latitude,
-  longitude
+id,
+name,
+is_template as "isTemplate",
+latitude,
+longitude,
+pdf_id as "pdfId"
   FROM jobs
   WHERE id = $1
     AND tenant_id = $2
@@ -247,7 +248,12 @@ const longitude =
     ? req.body.longitude
     : null;
 
-if (!name && latitude === null && longitude === null) {
+    const pdfId =
+  typeof req.body?.pdfId === "string"
+    ? req.body.pdfId
+    : null;
+
+if (!name && latitude === null && longitude === null && !pdfId) {
   return res.status(400).json({ error: "Nothing to update" });
 }
 
@@ -260,15 +266,16 @@ if ((latitude === null) !== (longitude === null)) {
   try {
     await pool.query(
       `
-INSERT INTO jobs (id, name, tenant_id, latitude, longitude)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO jobs (id, name, tenant_id, latitude, longitude, pdf_id)
+VALUES ($1, $2, $3, $4, $5, $6)
 ON CONFLICT (id, tenant_id)
 DO UPDATE SET
   name = COALESCE(EXCLUDED.name, jobs.name),
   latitude = COALESCE(EXCLUDED.latitude, jobs.latitude),
-  longitude = COALESCE(EXCLUDED.longitude, jobs.longitude)
+  longitude = COALESCE(EXCLUDED.longitude, jobs.longitude),
+  pdf_id = COALESCE(EXCLUDED.pdf_id, jobs.pdf_id)
       `,
-      [jobId, name, tenantId, latitude, longitude]
+      [jobId, name, tenantId, latitude, longitude, pdfId]
     );
 
     res.json({ success: true });

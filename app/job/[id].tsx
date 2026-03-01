@@ -10,6 +10,10 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from '../../src/lib/apiClient';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 import * as Linking from 'expo-linking';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+
+
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
 const router = useRouter();
@@ -20,6 +24,7 @@ const [jobPermitCompany, setJobPermitCompany] = useState<any | null>(null);
 const [jobInspectionCompany, setJobInspectionCompany] = useState<any | null>(null);
 const [role, setRole] = useState<string | null>(null);
 const [detailsExpanded, setDetailsExpanded] = useState(false);
+const [pdfLoading, setPdfLoading] = useState(false);
 const [assignments, setAssignments] = useState<any[]>([]);
 const [crews, setCrews] = useState<any[]>([]);
 const [phases, setPhases] = useState<string[]>([]);
@@ -32,6 +37,7 @@ const [noteSummary, setNoteSummary] = useState<{
   complete: number;
 } | null>(null);
 const [isTemplate, setIsTemplate] = useState(false);
+const [jobPdfId, setJobPdfId] = useState<string | null>(null);
 const [jobName, setJobName] = useState<string>('Job');
 const [editingName, setEditingName] = useState(false);
 const [nameDraft, setNameDraft] = useState('');
@@ -46,9 +52,79 @@ const [jobsIndex, setJobsIndex] = useState<any[]>([]);
   Linking.openURL(`tel:${phone}`);
 }
 
+function showJobDetailsHelp() {
+  Alert.alert(
+    'Job Setup Guide',
+    'Complete the following to fully configure this job:\n\n' +
+    '• Set Contractor\n' +
+    '• Assign Supervisors\n' +
+    '• Select Inspection & Permit companies\n' +
+    '• Upload the Job PDF\n\n' +
+    'These settings control scheduling, crew links, notes, and field plan access.',
+    [{ text: 'Got it' }]
+  );
+}
+
 function handleEmail(email?: string | null) {
   if (!email) return;
   Linking.openURL(`mailto:${email}`);
+}
+
+async function openJobPdf() {
+  if (!jobPdfId || pdfLoading) return;
+
+  setPdfLoading(true);
+
+  try {
+    const localUri = FileSystem.cacheDirectory
+      ? FileSystem.cacheDirectory + `job-${id}.pdf`
+      : FileSystem.documentDirectory + `job-${id}.pdf`;
+
+    // 🔎 Check if file exists
+    const info = await FileSystem.getInfoAsync(localUri);
+
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    if (info.exists && info.modificationTime) {
+      const fileAge =
+        Date.now() - info.modificationTime * 1000;
+
+      if (fileAge < sevenDaysMs) {
+        // ✅ Use cached file
+        await Linking.openURL(localUri);
+        setPdfLoading(false);
+        return;
+      }
+
+      // ❌ Expired → delete
+      await FileSystem.deleteAsync(localUri, {
+        idempotent: true,
+      });
+    }
+
+    // 🔁 Download fresh copy
+    const res = await apiFetch(
+      `/api/job-pdfs/${jobPdfId}/url`
+    );
+
+    if (!res?.url) {
+      Alert.alert('Error', 'Unable to retrieve PDF.');
+      return;
+    }
+
+    await FileSystem.downloadAsync(
+      res.url,
+      localUri
+    );
+
+    await Linking.openURL(localUri);
+
+  } catch (err) {
+    console.log('PDF error:', err);
+    Alert.alert('Error', 'Failed to open PDF.');
+  } finally {
+    setPdfLoading(false);
+  }
 }
 
 async function loadCrews() {
@@ -343,6 +419,7 @@ if (res?.job) {
   setJobName(res.job.name);
   setNameDraft(res.job.name);
   setIsTemplate(!!res.job.isTemplate);
+  setJobPdfId(res.job.pdfId ?? null);
 
   setJobCoords({
     latitude:
@@ -612,12 +689,25 @@ loadNoteSummary();
       onPress={() => setDetailsExpanded(v => !v)}
     >
 
-      <View style={styles.detailHeader}>
-        <Text style={styles.cardTitle}>Job Details</Text>
-        <Text style={styles.expandIcon}>
-          {detailsExpanded ? '▲' : '▼'}
-        </Text>
-      </View>
+<View style={styles.detailHeader}>
+  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+    <Text style={styles.cardTitle}>Job Details</Text>
+
+    <Pressable
+      onPress={(e) => {
+        e.stopPropagation(); // prevents collapse toggle
+        showJobDetailsHelp();
+      }}
+      hitSlop={8}
+    >
+      <Text style={styles.helpIcon}>?</Text>
+    </Pressable>
+  </View>
+
+  <Text style={styles.expandIcon}>
+    {detailsExpanded ? '▲' : '▼'}
+  </Text>
+</View>
 
       {detailsExpanded && (
         <View style={{ marginTop: 16, gap: 8 }}>
@@ -764,6 +854,36 @@ jobSupervisors.map((s: any, index: number) => {
 ) : (
   <Text style={styles.detailValue}>Not Assigned</Text>
 )}
+
+<View style={{ marginTop: 16 }}>
+  <Text style={styles.detailLabel}>Job PDF</Text>
+
+  <Pressable
+    style={styles.locationPill}
+onPress={() => {
+  if (jobPdfId) {
+    openJobPdf();
+  } else {
+    router.push(`/job/${id}/defaults`);
+  }
+}}
+  >
+  
+<Text style={styles.locationTitle}>
+  {pdfLoading
+    ? 'Opening...'
+    : jobPdfId
+      ? 'View PDF'
+      : 'Upload PDF'}
+</Text>
+
+    <Text style={styles.locationHint}>
+      {jobPdfId
+        ? 'PDF is attached to this job'
+        : 'No PDF attached yet'}
+    </Text>
+  </Pressable>
+</View>
 
 <Text style={[styles.detailLabel, { marginTop: 12 }]}>
   Assigned Crews (per phase)
@@ -1190,6 +1310,17 @@ assignedMeta: {
   fontSize: 11,
   color: '#64748b',   // soft slate gray
   marginTop: 2,
+},
+helpIcon: {
+  fontSize: 14,
+  fontWeight: '700',
+  color: '#2563eb',
+  backgroundColor: '#e0f2fe',
+  borderRadius: 999,
+  width: 18,
+  height: 18,
+  textAlign: 'center',
+  lineHeight: 18,
 },
 
 disabled: {

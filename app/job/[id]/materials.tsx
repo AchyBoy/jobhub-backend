@@ -116,6 +116,69 @@ const [pendingOrderItems, setPendingOrderItems] = useState<
   { materialId: string; qtyOrdered: number }[]
 >([]);
 
+async function markUndelivered(material: any) {
+  if (role !== 'owner' && role !== 'admin') return;
+
+  Alert.alert(
+    'Mark Undelivered?',
+    'This will reset ordered quantity for this item.',
+    [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Confirm',
+        style: 'destructive',
+        onPress: async () => {
+          const updated = materials.map(m =>
+            m.id === material.id
+              ? {
+                  ...m,
+                  qty_ordered: 0,
+                  date_ordered: null,
+                  order_id: null,
+                }
+              : m
+          );
+
+          setMaterials(updated);
+
+          await AsyncStorage.setItem(
+            `job:${jobId}:materials`,
+            JSON.stringify(updated)
+          );
+
+          try {
+            await apiFetch(`/api/materials/${material.id}`, {
+              method: 'PATCH',
+              body: JSON.stringify({
+                qtyOrdered: 0,
+                dateOrdered: null,
+                orderId: null,
+              }),
+            });
+          } catch {
+            await enqueueSync({
+              id: makeId(),
+              type: 'material_update',
+              coalesceKey: `material_update:${material.id}`,
+              createdAt: nowIso(),
+              payload: {
+                materialId: material.id,
+                updates: {
+                  qtyOrdered: 0,
+                  dateOrdered: null,
+                  orderId: null,
+                },
+              },
+            });
+          }
+
+          flushSyncQueue();
+        },
+      },
+    ]
+  );
+}
+
 async function deleteMaterial(materialId: string) {
   if (role !== 'owner' && role !== 'admin') return;
 
@@ -148,6 +211,8 @@ async function deleteMaterial(materialId: string) {
 async function loadRole() {
   try {
     const res = await apiFetch('/api/tenant/me');
+        console.log('ROLE RESPONSE:', res);
+
     setRole(res?.role ?? null);
   } catch {
     setRole(null);
@@ -266,6 +331,26 @@ useEffect(() => {
 
   setTimeout(() => flushSyncQueue(), 50);
 }, [jobId]);
+
+function phaseHasQtyToOrder(phase: string) {
+  const list = materialsByPhase[phase] ?? [];
+
+  return list.some((m: any) => {
+    const needed = m.qty_needed ?? 0;
+    const ordered = m.qty_ordered ?? 0;
+    const fromStorage = m.qty_from_storage ?? 0;
+
+    const remaining = needed - ordered - fromStorage;
+
+    return remaining > 0;
+  });
+}
+
+function phaseHasAnyQty(phase: string) {
+  const list = materialsByPhase[phase] ?? [];
+
+  return list.some((m: any) => (m.qty_needed ?? 0) > 0);
+}
 
 async function loadJob() {
   try {
@@ -825,13 +910,15 @@ async function handleCreateOrder() {
   const recipient =
     newVendorId ? vendorMap[newVendorId] : supplierMap[newSupplierId!];
 
-  const recipientEmail =
-    recipient?.contacts?.find((c: any) => c.type === 'email')?.value;
+const recipientEmails =
+  recipient?.contacts
+    ?.filter((c: any) => c.type === 'email' && c.value?.trim())
+    .map((c: any) => c.value.trim()) ?? [];
 
-  if (!recipientEmail) {
-    alert(`${newVendorId ? 'Vendor' : 'Supplier'} has no email`);
-    return;
-  }
+if (!recipientEmails.length) {
+  alert(`${newVendorId ? 'Vendor' : 'Supplier'} has no email`);
+  return;
+}
 
   const recipientName = recipient?.name ?? (newVendorId ? 'Vendor' : 'Supplier');
   const recipientId = newVendorId ?? newSupplierId!;
@@ -947,7 +1034,7 @@ const body =
   `${pdfUrl}\r\n`;
 
 await openInMail({
-  email: recipientEmail,
+  email: recipientEmails.join(','),
   subject,
   body,
 });
@@ -988,6 +1075,12 @@ for (const it of itemsToOrder) {
 
 const newQtyOrdered =
   material.qty_ordered ?? 0;
+
+    console.log('PATCH MATERIAL ORDER:', {
+    materialId: it.materialId,
+    qtyOrdered: newQtyOrdered,
+    orderId,
+  });
 
 await apiFetch(`/api/materials/${it.materialId}`, {
   method: 'PATCH',
@@ -1667,11 +1760,17 @@ body: JSON.stringify({
           [phase]: !prev[phase],
         }))
       }
-      style={{
-        backgroundColor: '#dbeafe',
-        padding: 12,
-        borderRadius: 12,
-      }}
+style={[
+  {
+    padding: 12,
+    borderRadius: 12,
+  },
+  phaseHasQtyToOrder(phase)
+    ? { backgroundColor: '#fee2e2' } // light red
+    : phaseHasAnyQty(phase)
+    ? { backgroundColor: '#dcfce7' } // light green
+    : { backgroundColor: '#dbeafe' }, // default blue
+]}
     >
       <Text style={{ fontWeight: '700', fontSize: 16 }}>
         {phase} {expandedPhases[phase] ? '▲' : '▼'}
@@ -1680,7 +1779,16 @@ body: JSON.stringify({
 
 {/* Phase Materials */}
 {expandedPhases[phase] &&
-  materialsByPhase[phase].map((material: any) => (
+  [...materialsByPhase[phase]]
+    .sort((a: any, b: any) => {
+      const aOrdered = isPhaseOrdered(a);
+      const bOrdered = isPhaseOrdered(b);
+
+      if (aOrdered === bOrdered) return 0;
+      if (aOrdered) return 1;  // push ordered down
+      return -1;              // keep unordered on top
+    })
+    .map((material: any) => (
 <Pressable
   key={material.id}
   delayLongPress={600}
@@ -1745,6 +1853,21 @@ body: JSON.stringify({
     {material.item_name}
   </Text>
 
+  {(() => {
+  console.log('Material Debug:', {
+    id: material.id,
+    needed: material.qty_needed,
+    ordered: material.qty_ordered,
+    fromStorage: material.qty_from_storage,
+    fulfilled:
+      (material.qty_ordered ?? 0) +
+      (material.qty_from_storage ?? 0),
+    isPhaseOrdered: isPhaseOrdered(material),
+    order_id: material.order_id,
+  });
+  return null;
+})()}
+
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
     <Text style={{ color: '#15803d', fontWeight: '700' }}>
@@ -1758,42 +1881,54 @@ body: JSON.stringify({
     )}
 
 {material.order_id && (
-  <Pressable
-    onPress={async () => {
-      try {
-        const orderId = material.order_id;
+  <>
+    <Pressable
+      onPress={async () => {
+        try {
+          const orderId = material.order_id;
 
-        const local = await getValidLocalPdf(orderId);
-        if (local) {
-          await Linking.openURL(local);
-          return;
-        }
+          const local = await getValidLocalPdf(orderId);
+          if (local) {
+            await Linking.openURL(local);
+            return;
+          }
 
-        const res = await apiFetch(
-          `/api/orders/${orderId}/pdf`
-        );
-        const signedUrl = res?.url;
+          const res = await apiFetch(
+            `/api/orders/${orderId}/pdf`
+          );
+          const signedUrl = res?.url;
 
-        if (!signedUrl) {
+          if (!signedUrl) {
+            alert('Unable to load PDF');
+            return;
+          }
+
+          const downloaded = await downloadAndPersistPdf(
+            orderId,
+            signedUrl
+          );
+
+          await Linking.openURL(downloaded);
+        } catch {
           alert('Unable to load PDF');
-          return;
         }
+      }}
+    >
+      <Text style={{ color: '#2563eb', fontSize: 12 }}>
+        View PDF
+      </Text>
+    </Pressable>
 
-        const downloaded = await downloadAndPersistPdf(
-          orderId,
-          signedUrl
-        );
-
-        await Linking.openURL(downloaded);
-      } catch {
-        alert('Unable to load PDF');
-      }
-    }}
-  >
-    <Text style={{ color: '#2563eb', fontSize: 12 }}>
-      View PDF
-    </Text>
-  </Pressable>
+    {(role === 'owner' || role === 'admin') && (
+      <Pressable
+        onPress={() => markUndelivered(material)}
+      >
+        <Text style={{ color: '#dc2626', fontSize: 12 }}>
+          Mark Undelivered
+        </Text>
+      </Pressable>
+    )}
+  </>
 )}
   </View>
 )}
@@ -2216,42 +2351,54 @@ style={[
       </Text>
     )}
 
-    {material.order_id && (
-      <Pressable
-        onPress={async () => {
-          try {
-const orderId = material.order_id;
+{material.order_id && (
+  <>
+    <Pressable
+      onPress={async () => {
+        try {
+          const orderId = material.order_id;
 
-const local = await getValidLocalPdf(orderId);
-if (local) {
-  await Linking.openURL(local);
-  return;
-}
-
-const res = await apiFetch(`/api/orders/${orderId}/pdf`);
-const signedUrl = res?.url;
-
-if (!signedUrl) {
-  alert('Unable to load PDF');
-  return;
-}
-
-const downloaded = await downloadAndPersistPdf(
-  orderId,
-  signedUrl
-);
-
-await Linking.openURL(downloaded);
-          } catch {
-            alert('Unable to load PDF');
+          const local = await getValidLocalPdf(orderId);
+          if (local) {
+            await Linking.openURL(local);
+            return;
           }
-        }}
+
+          const res = await apiFetch(`/api/orders/${orderId}/pdf`);
+          const signedUrl = res?.url;
+
+          if (!signedUrl) {
+            alert('Unable to load PDF');
+            return;
+          }
+
+          const downloaded = await downloadAndPersistPdf(
+            orderId,
+            signedUrl
+          );
+
+          await Linking.openURL(downloaded);
+        } catch {
+          alert('Unable to load PDF');
+        }
+      }}
+    >
+      <Text style={{ color: '#2563eb', fontSize: 12 }}>
+        View PDF
+      </Text>
+    </Pressable>
+
+    {(role === 'owner' || role === 'admin') && (
+      <Pressable
+        onPress={() => markUndelivered(material)}
       >
-        <Text style={{ color: '#2563eb', fontSize: 12 }}>
-          View PDF
+        <Text style={{ color: '#dc2626', fontSize: 12 }}>
+          Mark Undelivered
         </Text>
       </Pressable>
     )}
+  </>
+)}
   </View>
 )}
 
@@ -2328,13 +2475,30 @@ await Linking.openURL(downloaded);
     !newName.trim() && { opacity: 0.5 },
   ]}
 >
-<Text style={{ color: '#fff', fontWeight: '700' }}>
-  {newVendorId
-    ? `Add Material – Vendor: ${vendorMap[newVendorId]?.name ?? ''}`
-    : newSupplierId
-      ? `Add Material – Supplier: ${supplierMap[newSupplierId]?.name ?? ''}`
-      : 'Add Material'}
-</Text>
+<View style={{ alignItems: 'center' }}>
+  <Text style={{ color: '#fff', fontWeight: '700' }}>
+    Add Material
+  </Text>
+
+  {(newVendorId || newSupplierId || newPhase) && (
+    <Text
+      style={{
+        color: '#e2e8f0',
+        fontSize: 12,
+        marginTop: 2,
+      }}
+      numberOfLines={1}
+    >
+      {newVendorId
+        ? `${vendorMap[newVendorId]?.name ?? ''}`
+        : newSupplierId
+          ? `${supplierMap[newSupplierId]?.name ?? ''}`
+          : ''}
+
+      {newPhase ? ` • ${newPhase}` : ''}
+    </Text>
+  )}
+</View>
     </Pressable>
   </View>
   )}

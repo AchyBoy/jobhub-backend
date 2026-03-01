@@ -20,6 +20,9 @@ ios: {
 
     NSLocationWhenInUseUsageDescription:
       "JobHub uses your location while the app is open to show nearby scheduled jobs for convenience. Location is not tracked in the background.",
+
+        NSFaceIDUsageDescription:
+    "Allow JobHub to use Face ID to log you in quickly and securely.",
   },
 },
 

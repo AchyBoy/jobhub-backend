@@ -117,4 +117,33 @@ for (const child of children) {
   }
 });
 
+/* =========================================================
+   DELETE /api/phase-groups/:id
+   Delete a phase group
+   ========================================================= */
+router.delete('/:id', async (req: any, res) => {
+  const tenantId = req.user?.tenantId;
+  const { id } = req.params;
+
+  if (!tenantId) {
+    return res.status(403).json({ error: 'Missing tenant' });
+  }
+
+  try {
+    await pool.query(
+      `
+      DELETE FROM phase_groups
+      WHERE id = $1
+      AND tenant_id = $2
+      `,
+      [id, tenantId]
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('❌ Failed deleting phase group', err);
+    res.status(500).json({ error: 'Failed deleting phase group' });
+  }
+});
+
 export default router;

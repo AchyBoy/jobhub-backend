@@ -2,7 +2,7 @@
 import * as Clipboard from 'expo-clipboard';
 import { apiFetch } from '../../../src/lib/apiClient';
 import * as Linking from 'expo-linking';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, ScrollView, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -233,19 +233,21 @@ function sendCrewLink(crew?: { name?: string; email?: string }) {
     </Text>
 
 <Pressable
-  onPress={async () => {
-    const url = buildCrewUrl();
-    if (!url) return;
+onPress={async () => {
+  const url = buildCrewUrl();
+  if (!url) return;
 
-    // Force clean primitive string
-    const cleanUrl = decodeURIComponent(
-      encodeURI(String(url))
-    );
+  const cleanUrl = decodeURIComponent(
+    encodeURI(String(url))
+  );
 
-    await Clipboard.setStringAsync(cleanUrl);
+  await Clipboard.setStringAsync(cleanUrl);
 
-    console.log('Copied clean URL:', cleanUrl);
-  }}
+  Alert.alert(
+    'Link Copied',
+    'Crew link copied to clipboard.'
+  );
+}}
   style={{ paddingVertical: 6 }}
 >
   <Text style={{ color: '#16a34a', fontWeight: '600' }}>

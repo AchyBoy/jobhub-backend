@@ -5,6 +5,7 @@ import { supabase } from '../src/lib/supabase';
 import { apiFetch } from '../src/lib/apiClient';
 import { Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as LocalAuthentication from 'expo-local-authentication';
 import { AppState } from 'react-native';
 import * as Notifications from "expo-notifications";
 
@@ -12,14 +13,17 @@ export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<any>(null);
 
+
   const router = useRouter();
   const segments = useSegments();
+
 
 // 1️⃣ Load initial session + subscribe
 useEffect(() => {
 let mounted = true;
 async function init() {
 const { data } = await supabase.auth.getSession();
+console.log('🔎 getSession on launch:', data.session);
 if (!mounted) return;
 setSession(data.session);
 const { data: sub } = supabase.auth.onAuthStateChange(
@@ -41,6 +45,7 @@ return () => {
 mounted = false;
     };
   }, []);
+
 
 useEffect(() => {
   const subscription =
@@ -96,27 +101,29 @@ useEffect(() => {
 
 // 2️⃣ Handle routing reactively
 useEffect(() => {
-if (!ready) return;
-const inAuthGroup = segments[0] === '(auth)';
-if (!session && !inAuthGroup) {
-router.replace('/(auth)/login');
-return;
-    }
+  if (!ready) return;
 
-// Allow update-password screen while logged in
-const segment0 = segments[0];
-const segment1 = segments.at(1);
+  const inAuthGroup = segments[0] === '(auth)';
 
-const isUpdatePassword =
-  segment0 === '(auth)' &&
-  segment1 === 'update-password';
+  if (!session && !inAuthGroup) {
+    router.replace('/(auth)/login');
+    return;
+  }
 
-if (session && inAuthGroup && !isUpdatePassword) {
-  router.replace('/main');
-  return;
-}
+  const segment0 = segments[0];
+  const segment1 = segments.at(1);
 
-  }, [ready, session, segments]);
+  const isUpdatePassword =
+    segment0 === '(auth)' &&
+    segment1 === 'update-password';
+
+  if (session && inAuthGroup && !isUpdatePassword) {
+    router.replace('/main');
+    return;
+  }
+
+}, [ready, session, segments]);
+
 // 3️⃣ Heartbeat to detect session takeover
 useEffect(() => {
   if (!ready || !session) return;
@@ -170,6 +177,7 @@ useEffect(() => {
 }, [ready, session]);
 
 if (!ready) return null;
+
 
 return (
   <Stack

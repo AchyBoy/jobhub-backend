@@ -18,6 +18,7 @@ import { apiFetch } from '../../src/lib/apiClient';
 import { Stack, useLocalSearchParams } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
+import { Alert } from 'react-native';
 import { Calendar } from 'react-native-calendars';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 
@@ -54,14 +55,15 @@ const [newTaskJobId, setNewTaskJobId] = useState<string | null>(null);
 const [newTaskPhase, setNewTaskPhase] = useState<string | null>(null);
 const [newTaskCrewId, setNewTaskCrewId] = useState<string | null>(null);
 const [pendingRescheduleTask, setPendingRescheduleTask] = useState<any | null>(null);
+const [actionModeTaskId, setActionModeTaskId] = useState<string | null>(null);
 const [rescheduleHour, setRescheduleHour] = useState<number>(8);
 const [rescheduleMinute, setRescheduleMinute] = useState<number>(0);
 const [rescheduleTargetDate, setRescheduleTargetDate] = useState<Date | null>(null);
 const [jobSearch, setJobSearch] = useState('');
 const [showPhaseDropdown, setShowPhaseDropdown] = useState(false);
-const [filterCrewId, setFilterCrewId] = useState<string | null>(null);
-const [filterPhase, setFilterPhase] = useState<string | null>(null);
-const [filterStatus, setFilterStatus] = useState<'scheduled' | 'complete' | null>(null);
+const [filterCrewIds, setFilterCrewIds] = useState<string[]>([]);
+const [filterPhases, setFilterPhases] = useState<string[]>([]);
+const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
 const [filterJobId, setFilterJobId] = useState<string | null>(null);
 const [filterStartDate, setFilterStartDate] = useState<Date | null>(null);
 const [filterEndDate, setFilterEndDate] = useState<Date | null>(null);
@@ -91,9 +93,20 @@ const filteredTasks = scheduledTasks
       }
     }
 
-    if (filterCrewId && task.crew_id !== filterCrewId) return false;
-    if (filterPhase && task.phase !== filterPhase) return false;
-    if (filterStatus && task.status !== filterStatus) return false;
+if (
+  filterCrewIds.length > 0 &&
+  !filterCrewIds.includes(task.crew_id)
+) return false;
+
+if (
+  filterPhases.length > 0 &&
+  !filterPhases.includes(task.phase)
+) return false;
+
+if (
+  filterStatuses.length > 0 &&
+  !filterStatuses.includes(task.status)
+) return false;
     if (filterJobId && task.job_id !== filterJobId) return false;
 
     return true;
@@ -112,6 +125,36 @@ useEffect(() => {
   loadScheduledTasks();
   loadDirectories();
 }, []);
+
+// 🔵 Load saved filters
+useEffect(() => {
+  async function loadFilters() {
+    try {
+      const raw = await AsyncStorage.getItem('schedule_filters_v1');
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+
+      setFilterCrewIds(parsed.filterCrewIds ?? []);
+      setFilterPhases(parsed.filterPhases ?? []);
+      setFilterStatuses(parsed.filterStatuses ?? []);
+    } catch {}
+  }
+
+  loadFilters();
+}, []);
+
+// 🔵 Save filters when changed
+useEffect(() => {
+  AsyncStorage.setItem(
+    'schedule_filters_v1',
+    JSON.stringify({
+      filterCrewIds,
+      filterPhases,
+      filterStatuses,
+    })
+  );
+}, [filterCrewIds, filterPhases, filterStatuses]);
 
 useEffect(() => {
   if (!rescheduleTargetDate) return;
@@ -413,7 +456,31 @@ if (task.task_type === 'service' && !task.scheduled_at) {
 }
   
   // 1️⃣ Local first — remove task entirely
-  const updated = scheduledTasks.filter(t => t.id !== task.id);
+  let updated;
+
+if (task.task_type === 'service') {
+  // Restore unscheduled synthetic version
+  const synthetic = {
+    id: `service-${task.service_case_id}`,
+    task_type: 'service',
+    service_case_id: task.service_case_id,
+    job_id: null,
+    job_name: task.job_name,
+    crew_id: null,
+    crew_name: null,
+    phase: null,
+    scheduled_at: null,
+    status: 'unscheduled',
+    service_data: task.service_data,
+  };
+
+  updated = [
+    ...scheduledTasks.filter(t => t.id !== task.id),
+    synthetic,
+  ];
+} else {
+  updated = scheduledTasks.filter(t => t.id !== task.id);
+}
 
   setScheduledTasks(updated);
   await AsyncStorage.setItem(
@@ -443,9 +510,21 @@ if (task.task_type === 'service' && !task.scheduled_at) {
 
 async function createTaskFromCalendar() {
   
-  if (!selectedDate || !newTaskJobId || !newTaskCrewId || !newTaskPhase) {
-    return;
-  }
+if (!selectedDate || !newTaskJobId || !newTaskCrewId || !newTaskPhase) {
+  const missing: string[] = [];
+
+  if (!selectedDate) missing.push('Date');
+  if (!newTaskJobId) missing.push('Job');
+  if (!newTaskPhase) missing.push('Phase');
+  if (!newTaskCrewId) missing.push('Crew');
+
+  Alert.alert(
+    'Missing Required Fields',
+    `Please select: ${missing.join(', ')}`,
+  );
+
+  return;
+}
 
   // Default to 8:00 AM
 const dateObj = new Date(selectedDate);
@@ -727,16 +806,16 @@ ref={scrollRef}
 />
 
   {/* FILTER TOGGLE */}
-  <Pressable
-    onPress={() =>
-      setExpandedId(expandedId === '__filters' ? null : '__filters')
-    }
-    style={{ marginBottom: 12 }}
-  >
-    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
-      Filters
-    </Text>
-  </Pressable>
+<Pressable
+  onPress={() =>
+    setExpandedId(expandedId === '__filters' ? null : '__filters')
+  }
+  style={{ marginBottom: 12 }}
+>
+  <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+    {expandedId === '__filters' ? 'Close Filters' : 'Filters'}
+  </Text>
+</Pressable>
 
 {/* FILTER PANEL */}
 {expandedId === '__filters' && (
@@ -770,9 +849,9 @@ ref={scrollRef}
   }}
 >
   <Text>
-    {filterCrewId
-      ? sortedCrews.find(c => c.id === filterCrewId)?.name
-      : 'All Crews'}
+{filterCrewIds.length === 0
+  ? 'All Crews'
+  : `${filterCrewIds.length} selected`}
   </Text>
 </Pressable>
 
@@ -786,23 +865,25 @@ ref={scrollRef}
       backgroundColor: '#fff',
     }}
   >
-    <Pressable
-      onPress={() => {
-        setFilterCrewId(null);
-        setShowFilterCrewDropdown(false);
-      }}
-      style={{ padding: 10 }}
-    >
-      <Text>All Crews</Text>
-    </Pressable>
+<Pressable
+  onPress={() => {
+    setFilterCrewIds([]);
+  }}
+  style={{ padding: 10 }}
+>
+  <Text>All Crews</Text>
+</Pressable>
 
     {sortedCrews.map(c => (
       <Pressable
         key={c.id}
-        onPress={() => {
-          setFilterCrewId(c.id);
-          setShowFilterCrewDropdown(false);
-        }}
+onPress={() => {
+  setFilterCrewIds(prev =>
+    prev.includes(c.id)
+      ? prev.filter(id => id !== c.id)
+      : [...prev, c.id]
+  );
+}}
         style={{ padding: 10 }}
       >
         <Text>{c.name}</Text>
@@ -832,7 +913,9 @@ ref={scrollRef}
   }}
 >
   <Text>
-    {filterPhase ?? 'All Phases'}
+    {filterPhases.length === 0
+  ? 'All Phases'
+  : `${filterPhases.length} selected`}
   </Text>
 </Pressable>
 
@@ -848,7 +931,7 @@ ref={scrollRef}
   >
     <Pressable
       onPress={() => {
-        setFilterPhase(null);
+        setFilterPhases([]);
         setShowFilterPhaseDropdown(false);
       }}
       style={{ padding: 10 }}
@@ -860,8 +943,12 @@ ref={scrollRef}
       <Pressable
         key={p}
         onPress={() => {
-          setFilterPhase(p);
-          setShowFilterPhaseDropdown(false);
+          setFilterPhases(prev =>
+  prev.includes(p)
+    ? prev.filter(ph => ph !== p)
+    : [...prev, p]
+);
+          
         }}
         style={{ padding: 10 }}
       >
@@ -891,7 +978,9 @@ ref={scrollRef}
   }}
 >
   <Text>
-    {filterStatus ?? 'All Statuses'}
+    {filterStatuses.length === 0
+  ? 'All Statuses'
+  : `${filterStatuses.length} selected`}
   </Text>
 </Pressable>
 
@@ -907,7 +996,7 @@ ref={scrollRef}
   >
     <Pressable
       onPress={() => {
-        setFilterStatus(null);
+        setFilterStatuses([]);
         setShowFilterStatusDropdown(false);
       }}
       style={{ padding: 10 }}
@@ -919,8 +1008,12 @@ ref={scrollRef}
       <Pressable
         key={s}
         onPress={() => {
-          setFilterStatus(s as any);
-          setShowFilterStatusDropdown(false);
+          setFilterStatuses(prev =>
+  prev.includes(s)
+    ? prev.filter(st => st !== s)
+    : [...prev, s]
+);
+          
         }}
         style={{ padding: 10 }}
       >
@@ -934,9 +1027,9 @@ ref={scrollRef}
     {/* CLEAR BUTTON */}
     <Pressable
       onPress={() => {
-        setFilterCrewId(null);
-        setFilterPhase(null);
-        setFilterStatus(null);
+        setFilterCrewIds([]);
+        setFilterPhases([]);
+        setFilterStatuses([]);
         setFilterJobId(null);
         setFilterStartDate(null);
         setFilterEndDate(null);
@@ -1418,6 +1511,15 @@ const merged = [...withoutSynthetic, normalized];
       <Text style={{ color: '#2563eb', fontWeight: '700' }}>
         Enable Grouping
       </Text>
+
+      <Pressable
+  onPress={() => router.push('/main/phase-groups')}
+  style={{ paddingVertical: 6 }}
+>
+  <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+    Edit Groups
+  </Text>
+</Pressable>
     </Pressable>
   </View>
 )}
@@ -1545,11 +1647,7 @@ task.task_type === 'service' && !task.scheduled_at && {
       )
     }
 onLongPress={() => {
-  const original = new Date(task.scheduled_at);
-
-  setPendingRescheduleTask(task);
-  setRescheduleHour(original.getHours());
-  setRescheduleMinute(original.getMinutes());
+  setActionModeTaskId(task.id);
 }}
   >
 
@@ -1636,17 +1734,48 @@ onLongPress={() => {
           {task.phase}
         </Text>
 
-{pendingRescheduleTask?.id === task.id ? (
-  <Text
-    style={{
-      fontSize: 12,
-      marginTop: 6,
-      color: '#2563eb',
-      fontWeight: '700',
-    }}
-  >
-    Select a date
-  </Text>
+{actionModeTaskId === task.id ? (
+  <View style={{ marginTop: 8, gap: 6 }}>
+    <Pressable
+      onPress={() => {
+        const original = task.scheduled_at
+          ? new Date(task.scheduled_at)
+          : new Date();
+
+        setPendingRescheduleTask(task);
+        setRescheduleHour(original.getHours());
+        setRescheduleMinute(original.getMinutes());
+        setActionModeTaskId(null);
+      }}
+    >
+      <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+        Reschedule
+      </Text>
+    </Pressable>
+
+    <Pressable
+      onPress={() => {
+        if (task.task_type === 'service') {
+          unscheduleTask(task);
+        } else {
+          unscheduleTask(task);
+        }
+        setActionModeTaskId(null);
+      }}
+    >
+      <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+        Delete
+      </Text>
+    </Pressable>
+
+    <Pressable
+      onPress={() => setActionModeTaskId(null)}
+    >
+      <Text style={{ opacity: 0.6 }}>
+        Cancel
+      </Text>
+    </Pressable>
+  </View>
 ) : (
   <Text
     style={{
@@ -1655,7 +1784,7 @@ onLongPress={() => {
       opacity: 0.6,
     }}
   >
-    Hold to reschedule
+    Hold for options
   </Text>
 )}
 

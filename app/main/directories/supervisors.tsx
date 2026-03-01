@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack } from 'expo-router';
+import { KeyboardAvoidingView, Platform } from 'react-native';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../../src/lib/syncEngine';
 
 
@@ -33,6 +34,8 @@ export default function SupervisorsDirectory() {
   const [supervisors, setSupervisors] = useState<Supervisor[]>([]);
   const [name, setName] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [savedContacts, setSavedContacts] =
+  useState<Record<string, boolean>>({});
 
   // ==============================
 // Supervisor Phase Template Notes
@@ -167,6 +170,20 @@ function updateContact(
           method: 'POST',
           body: JSON.stringify(changed),
         });
+
+        setSavedContacts(prev => ({
+  ...prev,
+  [contactId]: true,
+}));
+
+// auto-reset green after 1.5s
+setTimeout(() => {
+  setSavedContacts(prev => ({
+    ...prev,
+    [contactId]: false,
+  }));
+}, 1500);
+
       } catch {
         await enqueueSync({
           id: makeId(),
@@ -398,10 +415,15 @@ setName('');
       }}
     />
 
-    <SafeAreaView
-      style={styles.container}
-      edges={['left','right','bottom']}
-    >
+<SafeAreaView
+  style={styles.container}
+  edges={['left','right','bottom']}
+>
+  <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    keyboardVerticalOffset={90}
+  >
 
 <View style={styles.addRow}>
   <TextInput
@@ -419,7 +441,10 @@ setName('');
   </Pressable>
 </View>
 
-      <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView
+  keyboardShouldPersistTaps="handled"
+  contentContainerStyle={{ paddingBottom: 120 }}
+>
 {supervisors.map(s => (
   <View key={s.id} style={styles.card}>
     <Pressable
@@ -454,19 +479,25 @@ onPress={async () => {
     {expanded === s.id && (
       <View style={{ marginTop: 12 }}>
         {s.contacts.map(contact => (
-          <TextInput
-            key={contact.id}
-            placeholder={
-              contact.type === 'phone'
-                ? 'Phone number'
-                : 'Email address'
-            }
-            value={contact.value}
-            onChangeText={text =>
-              updateContact(s.id, contact.id, text)
-            }
-            style={styles.input}
-          />
+<TextInput
+  key={contact.id}
+  placeholder={
+    contact.type === 'phone'
+      ? 'Phone number'
+      : 'Email address'
+  }
+  value={contact.value}
+  onChangeText={text =>
+    updateContact(s.id, contact.id, text)
+  }
+  style={[
+    styles.input,
+    savedContacts[contact.id] && {
+      borderColor: '#16a34a',
+      backgroundColor: '#dcfce7',
+    },
+  ]}
+/>
         ))}
 
         <View style={styles.contactBtns}>
@@ -637,6 +668,8 @@ onPress={async () => {
   </View>
 ))}
       </ScrollView>
+        </KeyboardAvoidingView>
+
     </SafeAreaView>
       </>
   );

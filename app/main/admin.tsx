@@ -163,7 +163,7 @@ return (
 
         {users.map((u: any) => (
           <View key={u.user_id} style={styles.userRow}>
-            <View>
+            <View style={{ flex: 1, paddingRight: 8 }}>
 <Text style={styles.userId}>
   {u.email || u.user_id}
 </Text>
@@ -173,7 +173,13 @@ return (
             </View>
 
 {u.role !== 'owner' && u.is_active && (
-  <View style={{ alignItems: 'flex-end', gap: 6 }}>
+  <View
+  style={{
+    alignItems: 'flex-end',
+    gap: 6,
+    minWidth: 140,
+  }}
+>
 
     {/* Role Toggle — Owner Only */}
     {currentRole === 'owner' && (
@@ -298,11 +304,13 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginBottom: 20,
   },
-  userRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
+userRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  marginBottom: 20,
+  gap: 12,
+},
   userId: {
     fontSize: 14,
     fontWeight: '600',
