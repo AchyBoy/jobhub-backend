@@ -14,7 +14,7 @@ export default function LoginScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function handleBiometricLogin() {
+async function handleBiometricLogin() {
   try {
     const savedEmail = await AsyncStorage.getItem('savedEmail');
     const savedPassword = await AsyncStorage.getItem('savedPassword');
@@ -30,18 +30,25 @@ export default function LoginScreen() {
 
     if (!result.success) return;
 
-    // Fill fields
+    // Run full normal login flow
     setEmail(savedEmail);
     setPassword(savedPassword);
 
-    // Run normal login
-    await supabase.auth.signInWithPassword({
+    setLoading(true);
+    setError(null);
+
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: savedEmail,
       password: savedPassword,
     });
 
-    await AsyncStorage.setItem('savedEmail', email);
-await AsyncStorage.setItem('savedPassword', password);
+    if (error || !data.session) {
+      Alert.alert('Login Failed', 'Saved credentials are invalid.');
+      setLoading(false);
+      return;
+    }
+
+    await apiFetch('/api/tenant/session');
 
     router.replace('/main');
 
@@ -108,10 +115,22 @@ try {
     return;
   }
 
-  // 🔐 Verify session ownership (device enforcement)
-  await apiFetch('/api/tenant/session');
+// 🔐 Verify session ownership (device enforcement)
+await apiFetch('/api/tenant/session');
 
-  router.replace('/main');
+// ✅ SAVE FOR FACE ID
+await AsyncStorage.setItem('savedEmail', email);
+await AsyncStorage.setItem('savedPassword', password);
+
+// 🔎 DEBUG: confirm it saved
+const debugEmail = await AsyncStorage.getItem('savedEmail');
+const debugPassword = await AsyncStorage.getItem('savedPassword');
+
+console.log('🧠 SAVED EMAIL:', debugEmail);
+console.log('🧠 SAVED PASSWORD EXISTS:', !!debugPassword);
+
+router.replace('/main');
+
   setLoading(false);
   return;
 
