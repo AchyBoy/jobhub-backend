@@ -15,6 +15,9 @@ type Job = {
   isTemplate?: boolean;
   address?: string;
   notes?: string;
+
+  incompleteNoteCount?: number;
+  unorderedItemCount?: number;
 };
 
 export default function JobsScreen() {
@@ -318,7 +321,7 @@ return (
 </View>
 
       {jobs.length === 0 ? (
-        <Text style={styles.empty}>No jobs yet. Tap “Add Job”.</Text>
+        <Text style={styles.empty}>No jobs yet. Tap "Add Job".</Text>
       ) : (
         <FlatList
           data={visibleJobs}
@@ -338,6 +341,24 @@ return (
   }
 >
   <Text style={styles.jobName}>{item.name}</Text>
+
+<View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+  {(item.incompleteNoteCount ?? 0) > 0 && (
+    <View style={styles.noteBadge}>
+      <Text style={styles.badgeText}>
+        {item.incompleteNoteCount} Notes Incomplete
+      </Text>
+    </View>
+  )}
+
+  {(item.unorderedItemCount ?? 0) > 0 && (
+    <View style={styles.materialBadge}>
+      <Text style={styles.badgeText}>
+        {item.unorderedItemCount} Items Not Ordered
+      </Text>
+    </View>
+  )}
+</View>
 
   {item.isTemplate && (
   <Text style={styles.templateBadge}>
@@ -490,6 +511,24 @@ searchInput: {
 templateCard: {
   borderColor: '#dc2626', // red-600
   borderWidth: 2,
+},
+noteBadge: {
+  backgroundColor: '#fef3c7',
+  paddingHorizontal: 10,
+  paddingVertical: 4,
+  borderRadius: 999,
+},
+
+materialBadge: {
+  backgroundColor: '#fee2e2',
+  paddingHorizontal: 10,
+  paddingVertical: 4,
+  borderRadius: 999,
+},
+
+badgeText: {
+  fontSize: 12,
+  fontWeight: '700',
 },
 
   multi: {

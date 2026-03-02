@@ -19,6 +19,7 @@ import { Stack, useLocalSearchParams } from 'expo-router';
 import { useRouter } from 'expo-router';
 import { useRef } from 'react';
 import { Alert } from 'react-native';
+
 import { Calendar } from 'react-native-calendars';
 import { enqueueSync, flushSyncQueue, makeId, nowIso } from '../../src/lib/syncEngine';
 
@@ -29,6 +30,7 @@ const [crews, setCrews] = useState<any[]>([]);
 const [showFilterCrewDropdown, setShowFilterCrewDropdown] = useState(false);
 const [showFilterStatusDropdown, setShowFilterStatusDropdown] = useState(false);
 const [showFilterPhaseDropdown, setShowFilterPhaseDropdown] = useState(false);
+const [listSortMode, setListSortMode] = useState<'date' | 'job'>('date');
 const [phaseGroups, setPhaseGroups] = useState<
   Record<string, { groupId: string; children: string[] }>
 >({});
@@ -624,8 +626,10 @@ const phasesRes = await apiFetch('/api/phases');
 const phaseObjects = phasesRes?.phases ?? [];
 
 const sorted = [...phaseObjects]
-  .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-  .map((p: any) => p.name);
+  .map((p: any) => p.name)
+  .sort((a: string, b: string) =>
+    a.localeCompare(b, undefined, { sensitivity: 'base' })
+  );
 
 setPhases(sorted);
 
@@ -1070,6 +1074,34 @@ onPress={() => {
       </Text>
     </Pressable>
   </View>
+
+  {viewMode === 'list' && (
+  <View style={{ flexDirection: 'row', gap: 20, marginBottom: 12 }}>
+    <Pressable onPress={() => setListSortMode('date')}>
+      <Text
+        style={
+          listSortMode === 'date'
+            ? styles.activeTab
+            : styles.tab
+        }
+      >
+        By Date
+      </Text>
+    </Pressable>
+
+    <Pressable onPress={() => setListSortMode('job')}>
+      <Text
+        style={
+          listSortMode === 'job'
+            ? styles.activeTab
+            : styles.tab
+        }
+      >
+        By Job
+      </Text>
+    </Pressable>
+  </View>
+)}
 
 <View style={{ paddingVertical: 8 }}>
 
@@ -1811,6 +1843,28 @@ onLongPress={() => {
   </View>
 )}
 
+{task.task_type === 'service' &&
+  task.service_data?.description && (
+    <View
+      style={{
+        marginBottom: 12,
+        padding: 12,
+        backgroundColor: '#f9fafb',
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: '#e5e7eb',
+      }}
+    >
+      <Text style={{ fontWeight: '700', marginBottom: 4 }}>
+        Task Details
+      </Text>
+
+      <Text style={{ fontSize: 14, lineHeight: 20 }}>
+        {task.service_data.description}
+      </Text>
+    </View>
+)}
+
 {task.task_type === 'service' && !task.scheduled_at && (
   <View style={{ marginBottom: 12 }}>
     <Pressable
@@ -1995,9 +2049,17 @@ router.push({
       {/* LIST VIEW */}
 {viewMode === 'list' &&
   [...filteredTasks]
-    .sort((a, b) =>
-      (a.job_name ?? '').localeCompare((b.job_name ?? ''))
-    )
+    .sort((a, b) => {
+      if (listSortMode === 'job') {
+        return (a.job_name ?? '').localeCompare(b.job_name ?? '');
+      }
+
+      // default: date
+      const aTime = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0;
+      const bTime = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0;
+
+      return aTime - bTime; // ascending by date
+    })
     .map(task => (
       <View
         key={task.id}

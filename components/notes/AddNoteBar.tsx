@@ -7,7 +7,7 @@ import {
   StyleSheet,
   ScrollView,
 } from 'react-native';
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'expo-router';
 
 type Props = {
@@ -26,23 +26,43 @@ export default function AddNoteBar({
   const router = useRouter();
   const [text, setText] = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
-
+const submittingRef = useRef(false);
+const lastSubmittedRef = useRef<string | null>(null);
   const noPhases = phases.length === 0;
   const noPhaseSelected = !phase;
   const disabled = noPhases || noPhaseSelected;
 
-  function submit() {
-    if (noPhases) {
-      router.push('/main/phases');
-      return;
-    }
+function submit() {
+  if (submittingRef.current) return;
 
-    if (noPhaseSelected) return;
-    if (!text.trim()) return;
-
-    onAdd(text.trim());
-    setText('');
+  if (noPhases) {
+    router.push('/main/phases');
+    return;
   }
+
+  if (noPhaseSelected) return;
+
+  const trimmed = text.trim();
+  if (!trimmed) return;
+
+  // 🔒 Prevent Siri duplicate finalization
+  if (lastSubmittedRef.current === trimmed) {
+    return;
+  }
+
+  submittingRef.current = true;
+  lastSubmittedRef.current = trimmed;
+
+  onAdd(trimmed);
+
+  setText('');
+
+  // release lock shortly after
+  setTimeout(() => {
+    submittingRef.current = false;
+    lastSubmittedRef.current = null;
+  }, 500);
+}
 
   return (
     <View style={styles.container}>

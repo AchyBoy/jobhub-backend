@@ -56,7 +56,19 @@ plugins: [
     },
   ],
   'expo-web-browser',
-  'expo-notifications', // 👈 REQUIRED
+  'expo-notifications',
+  [
+    'expo-share-intent',
+    {
+      ios: {
+        activationRules: {
+          supportsFile: true,
+          fileTypes: ['com.adobe.pdf'],
+          maxFileCount: 1,
+        },
+      },
+    },
+  ],
 ],
 
     experiments: {

@@ -490,9 +490,13 @@ async function loadJobVendors() {
     const res = await apiFetch(`/api/jobs/${jobId}/vendor`);
     const vendor = res?.vendor;
 
-    const list = vendor
-      ? [{ id: vendor.vendorId, name: vendor.name }]
-      : [];
+const list = vendor
+  ? [{
+      id: vendor.vendorId,
+      name: vendor.name,
+      contacts: vendor.contacts ?? [],
+    }]
+  : [];
 
     setVendors(list);
     await AsyncStorage.setItem(key, JSON.stringify(list));
@@ -507,15 +511,18 @@ async function loadJobVendors() {
   }
 }
 
-  async function loadSelections() {
+async function loadSelections() {
   try {
     const savedPhase = await AsyncStorage.getItem('materials:selectedPhase');
-    const savedSupplier = await AsyncStorage.getItem('materials:selectedSupplier');
-    const savedVendor = await AsyncStorage.getItem('materials:selectedVendor');
 
     if (savedPhase) setNewPhase(savedPhase);
-    if (savedSupplier) setNewSupplierId(savedSupplier);
-if (savedVendor) setNewVendorId(savedVendor);
+
+    // 🔥 Force clean start for party selection
+    setNewSupplierId(null);
+    setNewVendorId(null);
+
+    await AsyncStorage.removeItem('materials:selectedSupplier');
+    await AsyncStorage.removeItem('materials:selectedVendor');
   } catch {}
 }
 
@@ -1068,29 +1075,49 @@ return {
     JSON.stringify(updated)
   );
 
-  // persist to backend
+// persist to backend (non-blocking safe)
 for (const it of itemsToOrder) {
   const material = updated.find(m => m.id === it.materialId);
   if (!material) continue;
 
-const newQtyOrdered =
-  material.qty_ordered ?? 0;
+  const newQtyOrdered = material.qty_ordered ?? 0;
 
-    console.log('PATCH MATERIAL ORDER:', {
+  console.log('PATCH MATERIAL ORDER:', {
     materialId: it.materialId,
     qtyOrdered: newQtyOrdered,
     orderId,
   });
 
-await apiFetch(`/api/materials/${it.materialId}`, {
-  method: 'PATCH',
-  body: JSON.stringify({
-    qtyOrdered: newQtyOrdered,
-    dateOrdered: now,
-    orderId,
-  }),
-});
+  try {
+    await apiFetch(`/api/materials/${it.materialId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        qtyOrdered: newQtyOrdered,
+        dateOrdered: now,
+        orderId,
+      }),
+    });
+  } catch (err) {
+    console.warn('Material PATCH failed (queued):', it.materialId);
+
+    await enqueueSync({
+      id: makeId(),
+      type: 'material_update',
+      coalesceKey: `material_update:${it.materialId}`,
+      createdAt: nowIso(),
+      payload: {
+        materialId: it.materialId,
+        updates: {
+          qtyOrdered: newQtyOrdered,
+          dateOrdered: now,
+          orderId,
+        },
+      },
+    });
+  }
 }
+
+flushSyncQueue();
 }
 
 // Mark internal items as ordered

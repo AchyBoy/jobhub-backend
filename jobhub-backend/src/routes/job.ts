@@ -296,21 +296,42 @@ router.get("/job", async (req, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `
+const result = await pool.query(
+  `
 SELECT
-  id,
-  name,
-  is_template as "isTemplate",
-  latitude,
-  longitude,
-  created_at as "createdAt"
-FROM jobs
-WHERE tenant_id = $1
-ORDER BY created_at DESC
-      `,
-      [tenantId]
-    );
+  j.id,
+  j.name,
+  j.is_template as "isTemplate",
+  j.latitude,
+  j.longitude,
+  j.created_at as "createdAt",
+
+  -- 🟡 Incomplete Notes Count
+  (
+    SELECT COUNT(*)
+    FROM notes n
+    WHERE n.job_id = j.id
+      AND n.tenant_id = j.tenant_id
+      AND n.status = 'incomplete'
+  )::int as "incompleteNoteCount",
+
+  -- 🔴 Unordered Materials Count
+  (
+    SELECT COUNT(*)
+    FROM materials m
+    WHERE m.job_id = j.id
+      AND m.tenant_id = j.tenant_id
+      AND COALESCE(m.qty_needed,0) >
+          (COALESCE(m.qty_ordered,0) + COALESCE(m.qty_from_storage,0))
+      AND COALESCE(m.qty_needed,0) > 0
+  )::int as "unorderedItemCount"
+
+FROM jobs j
+WHERE j.tenant_id = $1
+ORDER BY j.created_at DESC
+  `,
+  [tenantId]
+);
 
     res.json({ jobs: result.rows });
   } catch (err) {

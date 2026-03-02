@@ -19,22 +19,37 @@ router.get("/:jobId/vendor", async (req: any, res) => {
   }
 
   try {
-    const result = await pool.query(
-      `
+const result = await pool.query(
+  `
 SELECT
   jv.id,
   v.id as "vendorId",
-  v.name
+  v.name,
+  COALESCE(
+    json_agg(
+      json_build_object(
+        'id', vc.id,
+        'type', vc.type,
+        'label', vc.label,
+        'value', vc.value
+      )
+    ) FILTER (WHERE vc.id IS NOT NULL),
+    '[]'
+  ) as contacts
 FROM job_vendors jv
 JOIN vendors v
   ON v.id = jv.vendor_id
   AND v.tenant_id = jv.tenant_id
+LEFT JOIN vendor_contacts vc
+  ON vc.vendor_id = v.id
+  AND vc.tenant_id = v.tenant_id
 WHERE jv.job_id = $1
   AND jv.tenant_id = $2
+GROUP BY jv.id, v.id
 LIMIT 1
-      `,
-      [jobId, tenantId]
-    );
+  `,
+  [jobId, tenantId]
+);
 
     res.json({ vendor: result.rows[0] ?? null });
   } catch (err) {

@@ -275,9 +275,6 @@ async function uploadPdf() {
 
     const res = await apiFetch('/api/job-pdfs/upload', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
       body: formData,
     });
 
@@ -286,17 +283,6 @@ async function uploadPdf() {
     if (!fileId) {
       throw new Error('Upload failed');
     }
-
-    // 🔥 Attach to job
-    await apiFetch(`/api/job/${jobId}/meta`, {
-      method: 'POST',
-      body: JSON.stringify({
-        name: null,
-        latitude: null,
-        longitude: null,
-        pdfId: fileId,
-      }),
-    });
 
     setJobPdfId(fileId);
 

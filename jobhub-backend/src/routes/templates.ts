@@ -106,46 +106,45 @@ router.post("/create/job", async (req: any, res) => {
 // =============================
 await client.query(
   `
-  INSERT INTO materials (
-    id,
-    tenant_id,
-    job_id,
-    item_name,
-    item_code,
-    phase,
-    supplier_id,
-    qty_needed,
-    qty_allocated,
-    qty_ordered,
-    qty_delivered,
-    status,
-    date_ready,
-    date_ordered,
-    date_delivered,
-    automation_payload,
-    created_at
-  )
-  SELECT
-    gen_random_uuid()::text,
-    tenant_id,
-    $1,
-    item_name,
-    item_code,
-    phase,
-    supplier_id,
-    qty_needed,
-    0,
-    0,
-    0,
-    status,
-    NULL,
-    NULL,
-    NULL,
-    NULL,
-    now()
-  FROM materials
-  WHERE job_id = $2
-  AND tenant_id = $3
+INSERT INTO materials (
+  id,
+  tenant_id,
+  job_id,
+  item_name,
+  item_code,
+  phase,
+  supplier_id,
+  qty_needed,
+  qty_allocated,
+  qty_ordered,
+  qty_delivered,
+  status,
+  date_ready,
+  date_ordered,
+  date_delivered,
+  automation_payload,
+  created_at
+)
+SELECT
+  gen_random_uuid()::text,
+  $3,
+  $1,
+  item_name,
+  item_code,
+  phase,
+  supplier_id,
+  qty_needed,
+  0,
+  0,
+  0,
+  status,
+  NULL,
+  NULL,
+  NULL,
+  NULL,
+  now()
+FROM materials
+WHERE job_id = $2
   `,
   [jobId, templateId, tenantId]
 );

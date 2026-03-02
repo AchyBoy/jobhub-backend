@@ -17,6 +17,8 @@ import * as Sharing from 'expo-sharing';
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
 const router = useRouter();
+const [manualCoordsText, setManualCoordsText] = useState('');
+const [manualLocationOpen, setManualLocationOpen] = useState(false);
 const [jobSupervisors, setJobSupervisors] = useState<any[]>([]);
 const [jobContractor, setJobContractor] = useState<any | null>(null);
 const [jobVendor, setJobVendor] = useState<any | null>(null);
@@ -56,13 +58,51 @@ function showJobDetailsHelp() {
   Alert.alert(
     'Job Setup Guide',
     'Complete the following to fully configure this job:\n\n' +
-    '• Set Contractor\n' +
-    '• Assign Supervisors\n' +
-    '• Select Inspection & Permit companies\n' +
-    '• Upload the Job PDF\n\n' +
-    'These settings control scheduling, crew links, notes, and field plan access.',
+      '• Set Contractor\n' +
+      '• Assign Supervisors\n' +
+      '• Select Inspection & Permit companies\n' +
+      '• Upload the Job PDF\n\n' +
+      'These settings control scheduling, crew links, notes, and field plan access.',
     [{ text: 'Got it' }]
   );
+}
+
+function showCoordsHelp() {
+  Alert.alert(
+    'How to get coordinates',
+    'Open Apple Maps or Google Maps.\n\n' +
+      '1) Search the address\n' +
+      '2) Long-press / drop a pin\n' +
+      '3) Copy the coordinates\n\n' +
+      'Paste format example:\n(30.0715208, -92.0842122)'
+  );
+}
+
+function parseCoords(input: string): { lat: number; lng: number } | null {
+  // Accepts "(lat, lng)" or "lat,lng" or "lat lng"
+  const cleaned = input
+    .trim()
+    .replace(/[()]/g, '')
+    .replace(/\s+/g, ' ');
+
+  // Try comma first
+  let parts = cleaned.split(',').map(s => s.trim()).filter(Boolean);
+
+  // If no comma, try space
+  if (parts.length < 2) {
+    parts = cleaned.split(' ').map(s => s.trim()).filter(Boolean);
+  }
+
+  if (parts.length < 2) return null;
+
+  const lat = parseFloat(parts[0]);
+  const lng = parseFloat(parts[1]);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (lat < -90 || lat > 90) return null;
+  if (lng < -180 || lng > 180) return null;
+
+  return { lat, lng };
 }
 
 function handleEmail(email?: string | null) {
@@ -719,7 +759,35 @@ loadNoteSummary();
 <Pressable
   style={styles.locationPill}
   onPress={openJobInMaps}
-  onLongPress={setLocationHereWithConfirm}
+  onLongPress={() => {
+  if (role !== 'owner' && role !== 'admin') {
+    Alert.alert('Unauthorized');
+    return;
+  }
+
+  Alert.alert(
+    'Set Job Location',
+    'Choose how to set location',
+    [
+      {
+        text: 'Use Current GPS',
+        onPress: () => setLocationHereWithConfirm(),
+      },
+{
+  text: 'Enter Manually',
+  onPress: () => {
+    const preset =
+      jobCoords.latitude != null && jobCoords.longitude != null
+        ? `(${jobCoords.latitude}, ${jobCoords.longitude})`
+        : '';
+    setManualCoordsText(preset);
+    setManualLocationOpen(true);
+  },
+},
+      { text: 'Cancel', style: 'cancel' },
+    ]
+  );
+}}
   delayLongPress={450}
 >
   <Text style={styles.locationTitle}>Set Location Here</Text>
@@ -735,6 +803,81 @@ loadNoteSummary();
   )}
 </Pressable>
 </View> 
+
+{manualLocationOpen && (
+  <View
+    style={{
+      marginTop: 12,
+      padding: 14,
+      backgroundColor: '#f8fbff',
+      borderRadius: 14,
+      borderWidth: 1,
+      borderColor: '#dbeafe',
+    }}
+  >
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+      <Text style={{ fontWeight: '700' }}>
+        Paste Coordinates
+      </Text>
+
+      <Pressable onPress={showCoordsHelp} hitSlop={8}>
+        <Text style={styles.helpIcon}>?</Text>
+      </Pressable>
+    </View>
+
+    <Text style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
+      Example: (30.0715208, -92.0842122)
+    </Text>
+
+    <TextInput
+      value={manualCoordsText}
+      onChangeText={setManualCoordsText}
+      placeholder="(lat, lng)"
+      autoCapitalize="none"
+      autoCorrect={false}
+      style={[styles.searchInput, { marginTop: 10 }]}
+    />
+
+    <View style={{ flexDirection: 'row', gap: 16, marginTop: 12 }}>
+      <Pressable onPress={() => setManualLocationOpen(false)}>
+        <Text style={{ color: '#64748b', fontWeight: '600' }}>
+          Cancel
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={async () => {
+          const parsed = parseCoords(manualCoordsText);
+          if (!parsed) {
+            Alert.alert('Invalid coordinates', 'Paste like: (30.0715208, -92.0842122)');
+            return;
+          }
+
+          try {
+            await apiFetch(`/api/job/${id}/meta`, {
+              method: 'POST',
+              body: JSON.stringify({
+                name: jobName,
+                latitude: parsed.lat,
+                longitude: parsed.lng,
+              }),
+            });
+
+            setJobCoords({ latitude: parsed.lat, longitude: parsed.lng });
+            setManualLocationOpen(false);
+            Alert.alert('Saved', 'Job location updated.');
+          } catch {
+            Alert.alert('Error', 'Failed to save location.');
+          }
+        }}
+      >
+        <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+          Save
+        </Text>
+      </Pressable>
+    </View>
+  </View>
+)}
 
                 <View style={{ marginTop: 10 }}>
 <Text style={styles.detailLabel}>Supervisors</Text>
