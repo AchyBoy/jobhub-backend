@@ -14,7 +14,7 @@ export default {
 ios: {
   supportsTablet: true,
   bundleIdentifier: 'com.jobhubgo.app',
-  buildNumber: '14',
+  buildNumber: '15',
   infoPlist: {
     ITSAppUsesNonExemptEncryption: false,
 
