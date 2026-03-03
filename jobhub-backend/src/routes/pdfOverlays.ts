@@ -125,4 +125,43 @@ router.post("/:jobId", async (req, res) => {
   }
 });
 
+/**
+ * PATCH /api/pdf-overlays/:overlayId
+ * Body: { x, y, width?, height? }
+ */
+router.patch("/:overlayId", async (req, res) => {
+  const overlayId = String(req.params.overlayId || "").trim();
+  const tenantId = (req as any).user?.tenantId;
+
+  if (!tenantId) {
+    return res.status(403).json({ error: "Missing tenant context" });
+  }
+
+  const { x, y, width, height } = req.body || {};
+
+  if (typeof x !== "number" || typeof y !== "number") {
+    return res.status(400).json({ error: "Invalid coordinates" });
+  }
+
+  try {
+    await pool.query(
+      `
+      UPDATE pdf_overlays
+      SET x = $1,
+          y = $2,
+          width = COALESCE($3, width),
+          height = COALESCE($4, height)
+      WHERE id = $5
+        AND tenant_id = $6
+      `,
+      [x, y, width ?? null, height ?? null, overlayId, tenantId]
+    );
+
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("❌ Failed to update overlay", err);
+    return res.status(500).json({ error: "Overlay update failed" });
+  }
+});
+
 export default router;
