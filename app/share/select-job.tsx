@@ -13,7 +13,7 @@ export default function ShareSelectJob() {
 
   const router = useRouter();
   const [jobs, setJobs] = useState<any[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingJobId, setUploadingJobId] = useState<string | null>(null);
 
   useEffect(() => {
     loadJobs();
@@ -32,7 +32,7 @@ export default function ShareSelectJob() {
     if (!uri) return;
 
     try {
-      setUploading(true);
+      setUploadingJobId(jobId);
 
       const formData = new FormData();
       formData.append('jobId', jobId);
@@ -57,7 +57,7 @@ export default function ShareSelectJob() {
     } catch (e) {
       Alert.alert('Error', 'Upload failed.');
     } finally {
-      setUploading(false);
+      setUploadingJobId(null);
     }
   }
 
@@ -67,22 +67,45 @@ export default function ShareSelectJob() {
         Select Job
       </Text>
 
-      {jobs.map(job => (
-        <Pressable
-          key={job.id}
-          onPress={() => attachToJob(job.id)}
+{jobs.map(job => {
+  const isUploading = uploadingJobId === job.id;
+
+  return (
+    <Pressable
+      key={job.id}
+      onPress={() => attachToJob(job.id)}
+      style={{
+        paddingVertical: 16,
+        borderBottomWidth: 1,
+        borderColor: '#eee',
+        opacity: uploadingJobId && !isUploading ? 0.4 : 1,
+      }}
+      disabled={uploadingJobId !== null}
+    >
+      <Text
+        style={{
+          fontSize: 16,
+          fontWeight: isUploading ? '700' : '500',
+        }}
+      >
+        {job.name}
+      </Text>
+
+      {isUploading && (
+        <Text
           style={{
-            paddingVertical: 14,
-            borderBottomWidth: 1,
-            borderColor: '#eee',
+            marginTop: 6,
+            fontSize: 12,
+            color: '#2563eb',
+            fontWeight: '600',
           }}
-          disabled={uploading}
         >
-          <Text style={{ fontSize: 16 }}>
-            {job.name}
-          </Text>
-        </Pressable>
-      ))}
+          Uploading PDF...
+        </Text>
+      )}
+    </Pressable>
+  );
+})}
     </ScrollView>
   );
 }

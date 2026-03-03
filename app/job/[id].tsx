@@ -117,8 +117,8 @@ async function openJobPdf() {
 
   try {
     const localUri = FileSystem.cacheDirectory
-      ? FileSystem.cacheDirectory + `job-${id}.pdf`
-      : FileSystem.documentDirectory + `job-${id}.pdf`;
+  ? FileSystem.cacheDirectory + `job-${jobPdfId}.pdf`
+  : FileSystem.documentDirectory + `job-${jobPdfId}.pdf`;
 
     // 🔎 Check if file exists
     const info = await FileSystem.getInfoAsync(localUri);

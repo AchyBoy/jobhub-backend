@@ -53,6 +53,38 @@ router.post(
 
       const previousPdfId = existingRes.rows[0]?.pdf_id ?? null;
 
+      // 1.5️⃣ If previous PDF exists, delete it (DB + Storage)
+if (previousPdfId) {
+  const oldRes = await client.query(
+    `
+    SELECT storage_path
+    FROM job_pdfs
+    WHERE id=$1 AND tenant_id=$2
+    `,
+    [previousPdfId, tenantId]
+  );
+
+const oldStoragePath = oldRes.rows[0]?.storage_path;
+
+if (oldStoragePath) {
+  const { error: removeError } = await supabaseAdmin.storage
+    .from("job-pdfs")
+    .remove([oldStoragePath]);
+
+  if (removeError) {
+    throw new Error(removeError.message);
+  }
+}
+
+  await client.query(
+    `
+    DELETE FROM job_pdfs
+    WHERE id=$1 AND tenant_id=$2
+    `,
+    [previousPdfId, tenantId]
+  );
+}
+
       // 2️⃣ Upload to Supabase
       const { error } = await supabaseAdmin.storage
         .from("job-pdfs")

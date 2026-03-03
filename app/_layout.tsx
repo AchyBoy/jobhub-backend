@@ -7,13 +7,14 @@ import { Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { AppState } from 'react-native';
+import { useShareIntent } from 'expo-share-intent';
 import * as Notifications from "expo-notifications";
 
 export default function RootLayout() {
   const [ready, setReady] = useState(false);
   const [session, setSession] = useState<any>(null);
-
-
+  // add near top inside component
+const { hasShareIntent } = useShareIntent();
   const router = useRouter();
   const segments = useSegments();
 
@@ -99,30 +100,6 @@ useEffect(() => {
 
 }, [ready, session, segments]);
 
-// 2️⃣ Handle routing reactively
-useEffect(() => {
-  if (!ready) return;
-
-  const inAuthGroup = segments[0] === '(auth)';
-
-  if (!session && !inAuthGroup) {
-    router.replace('/(auth)/login');
-    return;
-  }
-
-  const segment0 = segments[0];
-  const segment1 = segments.at(1);
-
-  const isUpdatePassword =
-    segment0 === '(auth)' &&
-    segment1 === 'update-password';
-
-  if (session && inAuthGroup && !isUpdatePassword) {
-    router.replace('/main');
-    return;
-  }
-
-}, [ready, session, segments]);
 
 // 3️⃣ Heartbeat to detect session takeover
 useEffect(() => {
@@ -176,7 +153,18 @@ useEffect(() => {
 
 }, [ready, session]);
 
-if (!ready) return null;
+useEffect(() => {
+  if (!ready) return;
+
+  if (hasShareIntent) {
+    console.log('🔥 SHARE INTENT DETECTED — navigating');
+    router.replace('/share');
+  }
+}, [ready, hasShareIntent]);
+
+if (!ready) {
+  return null;
+}
 
 
 return (
@@ -208,6 +196,9 @@ return (
   name="main"
   options={{ headerShown: false }}
 />
+
+<Stack.Screen name="share" options={{ headerShown: false }} />
+<Stack.Screen name="share/select-job" options={{ title: 'Select Job' }} />
 
     {/* Drill-down screens (need back + home) */}
 <Stack.Screen

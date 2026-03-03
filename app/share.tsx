@@ -3,11 +3,19 @@ import { useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator } from 'react-native';
 import { useShareIntent } from 'expo-share-intent';
 import { useRouter } from 'expo-router';
+import * as Linking from 'expo-linking';
+
 
 export default function ShareScreen() {
   const { hasShareIntent, shareIntent } = useShareIntent();
   const router = useRouter();
   const [handled, setHandled] = useState(false);
+
+  useEffect(() => {
+  Linking.getInitialURL().then(url => {
+    console.log('INITIAL URL:', url);
+  });
+}, []);
 
   useEffect(() => {
     if (!hasShareIntent || handled) return;
