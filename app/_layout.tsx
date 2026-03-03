@@ -35,6 +35,12 @@ const { data: sub } = supabase.auth.onAuthStateChange(
       return;
     }
 
+        // 🔥 ADD THIS
+    if (!session) {
+      router.replace('/(auth)/login');
+      return;
+    }
+
     setSession(session);
   }
 );
