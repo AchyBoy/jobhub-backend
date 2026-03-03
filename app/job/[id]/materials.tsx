@@ -51,11 +51,74 @@ const [showSearch, setShowSearch] = useState(false);
 const [highlightedMaterial, setHighlightedMaterial] = useState<string | null>(null);
 const lastTapRef = useRef<Record<string, number>>({});
 const scrollRef = useRef<ScrollView>(null);
+// (move these LOWER after newName is declared)
 const scrollYRef = useRef(0);
 
 // Anchor = “which item was in view”, not “what scrollY was”
 const anchorMaterialIdRef = useRef<string | null>(null);
 const anchorOffsetRef = useRef<number>(0);
+const [helpOpen, setHelpOpen] = useState<null | 'edit' | 'add'>(null);
+
+const EDIT_HELP = [
+  'Edit Mode is for office/admin changes.',
+  'Tap “☐ Select” on items to select multiple materials.',
+  'When you have selections, a blue bar appears to bulk-change Supplier for those items.',
+  'You can edit Qty Needed using the number box or +/− buttons.',
+  'On-Hand lets you allocate stock (it reduces what will be ordered).',
+  'If an item is already “✓ Ordered”, it is locked from Qty edits.',
+  'Hold an item to delete (owner/admin only).',
+  'Tip: Double-tap an item to collapse its Phase bucket.',
+];
+
+const ADD_HELP = [
+  'Step 1: Select a Phase.',
+  'Step 2: Select either a Supplier OR a Vendor (only one can be active).',
+  'Use “Has Qty” to quickly pick parties that already have items with qty.',
+  'The Order button sends only what’s still needed (Qty Needed - Ordered - From Storage).',
+  'Internal/On-Hand supplier: Order will pull On-Hand allocations into “From Storage”.',
+  'Add Items: enter Item name + Qty + optional code, then tap “Add Material”.',
+  'Tip: Your last selected Phase is remembered.',
+];
+
+function HelpCard(props: {
+  title: string;
+  bullets: string[];
+  onClose: () => void;
+}) {
+  return (
+    <View
+      style={{
+        backgroundColor: '#f8fafc',
+        borderRadius: 16,
+        padding: 14,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#e2e8f0',
+      }}
+    >
+      <View
+        style={{
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 8,
+        }}
+      >
+        <Text style={{ fontWeight: '800' }}>{props.title}</Text>
+
+        <Pressable onPress={props.onClose}>
+          <Text style={{ fontWeight: '800', color: '#2563eb' }}>Got it</Text>
+        </Pressable>
+      </View>
+
+      {props.bullets.map((b, idx) => (
+        <Text key={idx} style={{ marginTop: 6, opacity: 0.85 }}>
+          • {b}
+        </Text>
+      ))}
+    </View>
+  );
+}
 
 /**
  * Pick the material whose layout.y is closest to (but not greater than)
@@ -104,6 +167,34 @@ const [supplierPickerOpen, setSupplierPickerOpen] = useState(false);
   const [editMode, setEditMode] = useState(false);
 const [selectedMaterialIds, setSelectedMaterialIds] = useState<string[]>([]);
   const [newName, setNewName] = useState('');
+  const [showNameSuggestions, setShowNameSuggestions] = useState(false);
+
+const nameSuggestions = useMemo(() => {
+  const map = new Map<string, { name: string; code?: string | null }>();
+
+  for (const m of materials) {
+    const raw = String(m.item_name ?? '').trim();
+    if (!raw) continue;
+
+    const key = raw.toLowerCase();
+    if (!map.has(key)) {
+      map.set(key, { name: raw, code: m.item_code ?? null });
+    }
+  }
+
+  return Array.from(map.values()).sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
+}, [materials]);
+
+const filteredNameSuggestions = useMemo(() => {
+  const q = String(newName ?? '').trim().toLowerCase();
+  if (!q) return [];
+
+  return nameSuggestions
+    .filter(s => s.name.toLowerCase().includes(q))
+    .slice(0, 10);
+}, [newName, nameSuggestions]);
   const [newPhase, setNewPhase] = useState<string | null>(null);
   const [newSupplierId, setNewSupplierId] = useState<string | null>(null);
   const [newItemCode, setNewItemCode] = useState<string | null>(null);
@@ -678,31 +769,6 @@ const maxAllowed =
   flushSyncQueue();
 }
 
-function updateQtyLocal(materialId: string, delta: number) {
-  setMaterials(prev => {
-    const updated = prev.map(m => {
-      if (m.id !== materialId) return m;
-
-      const current = m.qty_needed ?? 0;
-      const newQty = Math.max(0, current + delta);
-
-      return {
-  ...m,
-  qty_needed: newQty,
-  updated_at: new Date().toISOString(),
-};
-    });
-
-    // Immediately persist local copy for offline-first feel
-    AsyncStorage.setItem(
-      `job:${jobId}:materials`,
-      JSON.stringify(updated)
-    );
-
-    return updated;
-  });
-}
-
 function updateOnHandLocal(materialId: string, delta: number) {
   setMaterials(prev =>
     prev.map(m => {
@@ -725,9 +791,28 @@ const maxAllowed =
   );
 }
 
+function updateQtyLocal(materialId: string, delta: number) {
+  setMaterials(prev =>
+    prev.map(m => {
+      if (m.id !== materialId) return m;
+
+      const current = m.qty_needed ?? 0;
+      const next = Math.max(0, current + delta);
+
+      return {
+        ...m,
+        qty_needed: next,
+        updated_at: new Date().toISOString(),
+      };
+    })
+  );
+}
+
 async function updateQty(material: any, delta: number) {
-  const current = material.qty_needed ?? 0;
-  const newQty = Math.max(0, current + delta);
+  const current =
+  materials.find(m => m.id === material.id)?.qty_needed ?? 0;
+
+const newQty = Math.max(0, current + delta);
 
   const updated = materials.map(m =>
     m.id === material.id
@@ -1197,41 +1282,75 @@ return (
     behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     keyboardVerticalOffset={90}
   >
-    <View style={styles.container}>
+  
+<View style={styles.container}>
 
-<View
-  style={{
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  }}
->
-  {/* Edit Mode Button */}
-<Pressable
-onPress={() => {
-  rememberAnchor();
-  setEditMode(v => !v);
-  setSelectedMaterialIds([]);
-}}
->
-    <Text style={{ fontWeight: '700', color: '#2563eb' }}>
-      {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
-    </Text>
-  </Pressable>
-
-  {/* Add Button */}
-  <Pressable
-    onPress={() => {
-      setEditMode(false);
-      setAddMode(v => !v);
+  <View
+    style={{
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: 12,
     }}
   >
-    <Text style={{ fontWeight: '700', color: '#16a34a' }}>
-      {addMode ? 'Cancel Add' : 'Add Items'}
-    </Text>
-  </Pressable>
-</View>
+    {/* LEFT — Edit Mode + Help */}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <Pressable
+        onPress={() => {
+          rememberAnchor();
+          setEditMode(v => !v);
+          setSelectedMaterialIds([]);
+        }}
+      >
+        <Text style={{ fontWeight: '700', color: '#2563eb' }}>
+          {editMode ? 'Exit Edit Mode' : 'Enter Edit Mode'}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={() => setHelpOpen(helpOpen === 'edit' ? null : 'edit')}
+      >
+        <Text style={{ fontWeight: '900', color: '#2563eb' }}>?</Text>
+      </Pressable>
+    </View>
+
+    {/* RIGHT — Add Items + Help */}
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+      <Pressable
+        onPress={() => {
+          setEditMode(false);
+          setAddMode(v => !v);
+        }}
+      >
+        <Text style={{ fontWeight: '700', color: '#16a34a' }}>
+          {addMode ? 'Cancel Add' : 'Add Items'}
+        </Text>
+      </Pressable>
+
+      <Pressable
+        onPress={() => setHelpOpen(helpOpen === 'add' ? null : 'add')}
+      >
+        <Text style={{ fontWeight: '900', color: '#16a34a' }}>?</Text>
+      </Pressable>
+    </View>
+  </View>
+
+  {/* HELP CARDS (insert right here, before SEARCH) */}
+  {helpOpen === 'edit' && (
+    <HelpCard
+      title="Materials • Edit Mode Help"
+      bullets={EDIT_HELP}
+      onClose={() => setHelpOpen(null)}
+    />
+  )}
+
+  {helpOpen === 'add' && (
+    <HelpCard
+      title="Materials • Add Items Help"
+      bullets={ADD_HELP}
+      onClose={() => setHelpOpen(null)}
+    />
+  )}
 
 {/* SEARCH */}
 <View style={{ marginBottom: 12, zIndex: 1000 }}>
@@ -2032,43 +2151,51 @@ style={[
   }}
 >
   {/* MINUS */}
-  <Pressable
-    onPressIn={() => startHold(() => updateQtyLocal(material.id, -1))}
-    onPressOut={async () => {
-      stopHold();
+{/* MINUS */}
+<Pressable
+  onPressIn={() => {
+    startHold(() => {
+      updateQtyLocal(material.id, -1);
+    });
+  }}
+  onPressOut={async () => {
+    stopHold();
 
-      // read latest value from functional update pattern
-      const latest = materials.find(m => m.id === material.id);
-      if (!latest) return;
+    const latest = materials.find(m => m.id === material.id);
+    if (!latest) return;
 
-      await setQtyDirect(latest, latest.qty_needed ?? 0);
-    }}
-    style={{
-      paddingHorizontal: 18,
-      paddingVertical: 6,
-    }}
-  >
-    <Text style={[styles.qtyBtn, { fontSize: 26 }]}>−</Text>
-  </Pressable>
+    await setQtyDirect(latest, latest.qty_needed ?? 0);
+  }}
+  style={{
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+  }}
+>
+  <Text style={[styles.qtyBtn, { fontSize: 26 }]}>−</Text>
+</Pressable>
 
-  {/* PLUS */}
-  <Pressable
-    onPressIn={() => startHold(() => updateQtyLocal(material.id, 1))}
-    onPressOut={async () => {
-      stopHold();
+{/* PLUS */}
+<Pressable
+  onPressIn={() => {
+    startHold(() => {
+      updateQtyLocal(material.id, 1);
+    });
+  }}
+  onPressOut={async () => {
+    stopHold();
 
-      const latest = materials.find(m => m.id === material.id);
-      if (!latest) return;
+    const latest = materials.find(m => m.id === material.id);
+    if (!latest) return;
 
-      await setQtyDirect(latest, latest.qty_needed ?? 0);
-    }}
-    style={{
-      paddingHorizontal: 18,
-      paddingVertical: 6,
-    }}
-  >
-    <Text style={[styles.qtyBtn, { fontSize: 26 }]}>+</Text>
-  </Pressable>
+    await setQtyDirect(latest, latest.qty_needed ?? 0);
+  }}
+  style={{
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+  }}
+>
+  <Text style={[styles.qtyBtn, { fontSize: 26 }]}>+</Text>
+</Pressable>
 </View>
 
   {/* On-Hand stays unchanged */}
@@ -2467,12 +2594,75 @@ style={[
     </ScrollView>
 {addMode && (
 <View style={styles.bottomAddBar}>
-    <TextInput
-      placeholder="Item name"
-      value={newName}
-      onChangeText={setNewName}
-      style={styles.input}
-    />
+<View style={{ position: 'relative' }}>
+  <TextInput
+    placeholder="Item name"
+    value={newName}
+    onChangeText={(txt) => {
+      setNewName(txt);
+      setShowNameSuggestions(true);
+    }}
+    onFocus={() => setShowNameSuggestions(true)}
+    onBlur={() => {
+      // Delay so a tap on a suggestion still registers
+      setTimeout(() => setShowNameSuggestions(false), 120);
+    }}
+    style={styles.input}
+  />
+
+  {addMode &&
+    showNameSuggestions &&
+    filteredNameSuggestions.length > 0 && (
+      <View
+        style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: 54, // pushes dropdown above the input
+          backgroundColor: '#fff',
+          borderWidth: 1,
+          borderColor: '#e5e7eb',
+          borderRadius: 10,
+          maxHeight: 220,
+          zIndex: 9999,
+          elevation: 20,
+          overflow: 'hidden',
+        }}
+      >
+        <ScrollView keyboardShouldPersistTaps="handled">
+          {filteredNameSuggestions.map(s => (
+            <Pressable
+              key={s.name}
+              onPress={() => {
+                setNewName(s.name);
+
+                // Optional behavior:
+                // If you want tapping suggestion to auto-fill item code too,
+                // uncomment this:
+                // setNewItemCode(s.code ?? null);
+
+                setShowNameSuggestions(false);
+                Keyboard.dismiss();
+              }}
+              style={{
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                borderBottomWidth: 1,
+                borderBottomColor: '#f1f5f9',
+              }}
+            >
+              <Text style={{ fontWeight: '700' }}>{s.name}</Text>
+              {s.code ? (
+                <Text style={{ fontSize: 12, opacity: 0.6 }}>
+                  ID: {s.code}
+                </Text>
+              ) : null}
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    )}
+</View>
 
     <View style={{ flexDirection: 'row', gap: 10 }}>
       <TextInput
@@ -2495,6 +2685,7 @@ style={[
   disabled={!newName.trim()}
   onPress={() => {
     Keyboard.dismiss();
+     setShowNameSuggestions(false);
     createMaterial();
   }}
   style={[

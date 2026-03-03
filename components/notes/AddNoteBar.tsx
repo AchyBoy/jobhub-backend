@@ -32,6 +32,44 @@ const lastSubmittedRef = useRef<string | null>(null);
   const noPhaseSelected = !phase;
   const disabled = noPhases || noPhaseSelected;
 
+  function normalizeForCompare(s: string) {
+  return s
+    .replace(/\s+/g, ' ')
+    .replace(/[“”]/g, '"')
+    .replace(/[‘’]/g, "'")
+    .trim();
+}
+
+// Removes common dictation duplication:
+// "foo bar ... foo bar ..." -> "foo bar ..."
+function dedupeDictation(text: string) {
+  const cleaned = normalizeForCompare(text);
+  if (!cleaned) return cleaned;
+
+  const words = cleaned.split(' ').filter(Boolean);
+  const n = words.length;
+
+  // If it's exactly two identical halves, keep one half
+  if (n >= 6 && n % 2 === 0) {
+    const half = n / 2;
+    const a = words.slice(0, half).join(' ');
+    const b = words.slice(half).join(' ');
+    if (a === b) return a;
+  }
+
+  // If it ends with a repeated tail phrase, remove the duplicate tail
+  // Example: "... hopefully not hopefully not"
+  for (let k = Math.floor(n / 2); k >= 3; k--) {
+    const tail1 = words.slice(n - 2 * k, n - k).join(' ');
+    const tail2 = words.slice(n - k).join(' ');
+    if (tail1 === tail2) {
+      return words.slice(0, n - k).join(' ');
+    }
+  }
+
+  return cleaned;
+}
+
 function submit() {
   if (submittingRef.current) return;
 
@@ -42,18 +80,21 @@ function submit() {
 
   if (noPhaseSelected) return;
 
-  const trimmed = text.trim();
-  if (!trimmed) return;
+const trimmed = text.trim();
+if (!trimmed) return;
 
-  // 🔒 Prevent Siri duplicate finalization
-  if (lastSubmittedRef.current === trimmed) {
-    return;
-  }
+const cleaned = dedupeDictation(trimmed);
+if (!cleaned) return;
 
-  submittingRef.current = true;
-  lastSubmittedRef.current = trimmed;
+// 🔒 Prevent double-submit (including Siri finalize event)
+if (lastSubmittedRef.current === cleaned) {
+  return;
+}
 
-  onAdd(trimmed);
+submittingRef.current = true;
+lastSubmittedRef.current = cleaned;
+
+onAdd(cleaned);
 
   setText('');
 

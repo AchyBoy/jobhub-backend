@@ -123,7 +123,8 @@ INSERT INTO materials (
   date_ordered,
   date_delivered,
   automation_payload,
-  created_at
+  created_at,
+  updated_at
 )
 SELECT
   gen_random_uuid()::text,
@@ -142,6 +143,7 @@ SELECT
   NULL,
   NULL,
   NULL,
+  now(),
   now()
 FROM materials
 WHERE job_id = $2

@@ -2046,7 +2046,9 @@ router.push({
   </>
 )}
 
-      {/* LIST VIEW */}
+{/* ✅ AFTER (List cards expand + actions work) */}
+
+{/* LIST VIEW */}
 {viewMode === 'list' &&
   [...filteredTasks]
     .sort((a, b) => {
@@ -2054,24 +2056,32 @@ router.push({
         return (a.job_name ?? '').localeCompare(b.job_name ?? '');
       }
 
-      // default: date
-      const aTime = a.scheduled_at ? new Date(a.scheduled_at).getTime() : 0;
-      const bTime = b.scheduled_at ? new Date(b.scheduled_at).getTime() : 0;
+      const aTime = a.scheduled_at ? new Date(a.scheduled_at).getTime() : Number.POSITIVE_INFINITY;
+      const bTime = b.scheduled_at ? new Date(b.scheduled_at).getTime() : Number.POSITIVE_INFINITY;
 
-      return aTime - bTime; // ascending by date
+      return aTime - bTime;
     })
     .map(task => (
-      <View
+      <Pressable
         key={task.id}
         onLayout={(e) => {
           taskYPositionsRef.current[task.id] = e.nativeEvent.layout.y;
         }}
+        onPress={() => setExpandedId(expandedId === task.id ? null : task.id)}
+        onLongPress={() => setActionModeTaskId(task.id)}
+        delayLongPress={600}
         style={[
           styles.card,
           highlightTaskId === task.id && {
             borderWidth: 2,
             borderColor: '#2563eb',
             backgroundColor: '#eff6ff',
+          },
+
+          // Optional: make unscheduled service visually obvious in list view too
+          task.task_type === 'service' && !task.scheduled_at && {
+            borderWidth: 2,
+            borderColor: '#dc2626',
           },
         ]}
       >
@@ -2080,38 +2090,157 @@ router.push({
         </Text>
 
         <Text style={styles.meta}>
-          Crew: {task.crew_name ?? task.crew_id}
+          Crew: {task.crew_name ?? task.crew_id ?? '—'}
         </Text>
 
         <Text style={styles.meta}>
-          Phase: {task.phase}
+          Phase: {task.phase ?? '—'}
         </Text>
 
         <Text style={styles.date}>
-          {new Date(task.scheduled_at).toLocaleString()}
+          {task.scheduled_at ? new Date(task.scheduled_at).toLocaleString() : 'Unscheduled'}
         </Text>
 
-        <View style={{ marginTop: 8 }}>
-  <Pressable
-    onPress={() => {
-      if (!task.job_id) return;
+        {actionModeTaskId === task.id ? (
+          <View style={{ marginTop: 10, gap: 6 }}>
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                const original = task.scheduled_at ? new Date(task.scheduled_at) : new Date();
+                setPendingRescheduleTask(task);
+                setRescheduleHour(original.getHours());
+                setRescheduleMinute(original.getMinutes());
+                setActionModeTaskId(null);
+              }}
+            >
+              <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+                Reschedule
+              </Text>
+            </Pressable>
 
-router.push({
-  pathname: '/job/[id]',
-  params: {
-    id: task.job_id,
-    name: task.job_name ?? '',
-  },
-});
-    }}
-  >
-    <Text style={{ color: '#2563eb', fontWeight: '700' }}>
-      Go To Job
-    </Text>
-  </Pressable>
-</View>
-      </View>
-    ))}
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                unscheduleTask(task);
+                setActionModeTaskId(null);
+              }}
+            >
+              <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+                Delete
+              </Text>
+            </Pressable>
+
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation();
+                setActionModeTaskId(null);
+              }}
+            >
+              <Text style={{ opacity: 0.6 }}>
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        ) : (
+          <Text style={{ fontSize: 12, marginTop: 6, opacity: 0.6 }}>
+            Tap to expand • Hold for options
+          </Text>
+        )}
+
+        {expandedId === task.id && (
+          <View style={{ marginTop: 12 }}>
+
+            {/* MARK COMPLETE / INCOMPLETE */}
+            {task.status !== 'complete' ? (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  updateTaskStatus(task.id, 'complete');
+                }}
+              >
+                <Text style={{ color: 'green', fontWeight: '700' }}>
+                  Mark Complete
+                </Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  updateTaskStatus(task.id, 'scheduled');
+                }}
+              >
+                <Text style={{ color: 'red', fontWeight: '700' }}>
+                  Mark Incomplete
+                </Text>
+              </Pressable>
+            )}
+
+            {/* GO TO JOB */}
+            <View style={{ marginTop: 12 }}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  if (!task.job_id) return;
+
+                  router.push({
+                    pathname: '/job/[id]',
+                    params: { id: task.job_id, name: task.job_name ?? '' },
+                  });
+                }}
+              >
+                <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+                  Go To Job
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* SEND TO CREW */}
+            <View style={{ marginTop: 12 }}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  sendScheduleEmail(task);
+                }}
+              >
+                <Text style={{ color: 'red', fontWeight: '700' }}>
+                  Send To Crew
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* RESCHEDULE +1 */}
+            <View style={{ marginTop: 12 }}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  rescheduleTask(task, 1);
+                }}
+              >
+                <Text style={{ color: '#2563eb', fontWeight: '700' }}>
+                  Reschedule +1 Day
+                </Text>
+              </Pressable>
+            </View>
+
+            {/* UNSCHEDULE */}
+            <View style={{ marginTop: 12 }}>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  unscheduleTask(task);
+                }}
+              >
+                <Text style={{ color: '#dc2626', fontWeight: '700' }}>
+                  Unschedule
+                </Text>
+              </Pressable>
+            </View>
+
+          </View>
+        )}
+      </Pressable>
+    ))
+}
     </View>
     </ScrollView>
   </View>

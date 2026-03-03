@@ -17,6 +17,19 @@ import * as Sharing from 'expo-sharing';
 export default function JobHub() {
 const { id, name } = useLocalSearchParams();
 const router = useRouter();
+const [jobAddress, setJobAddress] = useState<{
+  street: string;
+  city: string;
+  state: string;
+  zip: string;
+} | null>(null);
+
+const [addressForm, setAddressForm] = useState({
+  street: '',
+  city: '',
+  state: '',
+  zip: '',
+});
 const [manualCoordsText, setManualCoordsText] = useState('');
 const [manualLocationOpen, setManualLocationOpen] = useState(false);
 const [jobSupervisors, setJobSupervisors] = useState<any[]>([]);
@@ -336,6 +349,7 @@ async function loadRole() {
 }
 
 async function loadJobsIndex(tid: string) {
+
   const cacheKey = `jobs:${tid}`;
 
   // 1) local first (instant)
@@ -455,18 +469,37 @@ async function assignCrew(crewId: string, phase: string) {
 async function loadJob() {
   try {
     const res = await apiFetch(`/api/job/${id}`);
+        console.log('LOAD JOB RESPONSE:', res);
+    console.log('LOAD JOB ADDRESS RAW:', res?.job?.address);
 if (res?.job) {
   setJobName(res.job.name);
   setNameDraft(res.job.name);
   setIsTemplate(!!res.job.isTemplate);
   setJobPdfId(res.job.pdfId ?? null);
 
-  setJobCoords({
-    latitude:
-      typeof res.job.latitude === 'number' ? res.job.latitude : null,
-    longitude:
-      typeof res.job.longitude === 'number' ? res.job.longitude : null,
-  });
+setJobCoords({
+  latitude:
+    typeof res.job.latitude === 'number' ? res.job.latitude : null,
+  longitude:
+    typeof res.job.longitude === 'number' ? res.job.longitude : null,
+});
+
+if (res.job.address) {
+  try {
+    const parsed = JSON.parse(res.job.address);
+    setJobAddress(parsed);
+  } catch {
+    // backwards compatibility (old string format)
+    setJobAddress({
+      street: res.job.address,
+      city: '',
+      state: '',
+      zip: '',
+    });
+  }
+} else {
+  setJobAddress(null);
+}
 }
   } catch {}
 }
@@ -475,21 +508,40 @@ function openJobInMaps() {
   const lat = jobCoords.latitude;
   const lng = jobCoords.longitude;
 
-  if (lat == null || lng == null) {
-    Alert.alert(
-      'No Location Set',
-      'This job does not have GPS coordinates yet. Hold the button to set location here.'
-    );
+  // 1️⃣ Prefer coordinates
+  if (lat != null && lng != null) {
+    const label = encodeURIComponent(jobName || 'Job');
+    const appleUrl = `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`;
+    const googleUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+    Linking.openURL(appleUrl).catch(() => Linking.openURL(googleUrl));
     return;
   }
 
-  const label = encodeURIComponent(jobName || 'Job');
-  // Apple Maps (works on iOS simulator)
-  const appleUrl = `http://maps.apple.com/?ll=${lat},${lng}&q=${label}`;
-  // Google Maps fallback
-  const googleUrl = `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+  // 2️⃣ Fallback to structured address
+  if (jobAddress) {
+    const fullAddress = [
+      jobAddress.street,
+      jobAddress.city,
+      jobAddress.state,
+      jobAddress.zip,
+    ]
+      .filter(Boolean)
+      .join(', ');
 
-  Linking.openURL(appleUrl).catch(() => Linking.openURL(googleUrl));
+    if (fullAddress.length > 0) {
+      const encoded = encodeURIComponent(fullAddress);
+      const appleUrl = `http://maps.apple.com/?q=${encoded}`;
+      const googleUrl = `https://www.google.com/maps/search/?api=1&query=${encoded}`;
+      Linking.openURL(appleUrl).catch(() => Linking.openURL(googleUrl));
+      return;
+    }
+  }
+
+  // 3️⃣ Nothing set
+  Alert.alert(
+    'No Location Set',
+    'Set GPS coordinates or enter a job address.'
+  );
 }
 
 async function setLocationHereWithConfirm() {
@@ -508,7 +560,10 @@ async function setLocationHereWithConfirm() {
       return;
     }
 
-    const pos = await Location.getCurrentPositionAsync({});
+    const pos = await Location.getCurrentPositionAsync({
+  accuracy: Location.Accuracy.Balanced,
+  mayShowUserSettingsDialog: true,
+});
     latitude = pos.coords.latitude;
     longitude = pos.coords.longitude;
   } catch {
@@ -801,6 +856,15 @@ loadNoteSummary();
       {jobCoords.latitude.toFixed(5)}, {jobCoords.longitude.toFixed(5)}
     </Text>
   )}
+
+{jobAddress && (
+  <Text style={styles.locationCoords}>
+    {[jobAddress.street, jobAddress.city, jobAddress.state, jobAddress.zip]
+      .filter(Boolean)
+      .join(', ')}
+  </Text>
+)}
+
 </Pressable>
 </View> 
 
@@ -816,9 +880,9 @@ loadNoteSummary();
     }}
   >
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-      <Text style={{ fontWeight: '700' }}>
-        Paste Coordinates
-      </Text>
+<Text style={{ fontWeight: '700' }}>
+  Enter Address or Coordinates
+</Text>
 
       <Pressable onPress={showCoordsHelp} hitSlop={8}>
         <Text style={styles.helpIcon}>?</Text>
@@ -826,17 +890,48 @@ loadNoteSummary();
     </View>
 
     <Text style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-      Example: (30.0715208, -92.0842122)
+      Examples:
+123 Main St Zachary LA
+HXP3+RG Zachary Louisiana
+(30.0715208, -92.0842122)
     </Text>
 
-    <TextInput
-      value={manualCoordsText}
-      onChangeText={setManualCoordsText}
-      placeholder="(lat, lng)"
-      autoCapitalize="none"
-      autoCorrect={false}
-      style={[styles.searchInput, { marginTop: 10 }]}
-    />
+{/* Street */}
+<TextInput
+  value={addressForm.street}
+  onChangeText={(v) => setAddressForm({ ...addressForm, street: v })}
+  placeholder="Street Address"
+  style={[styles.searchInput, { marginTop: 10 }]}
+/>
+
+{/* City */}
+<TextInput
+  value={addressForm.city}
+  onChangeText={(v) => setAddressForm({ ...addressForm, city: v })}
+  placeholder="City"
+  style={[styles.searchInput, { marginTop: 10 }]}
+/>
+
+{/* State + Zip Row */}
+<View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
+  <TextInput
+    value={addressForm.state}
+    onChangeText={(v) => setAddressForm({ ...addressForm, state: v })}
+    placeholder="State"
+    style={[styles.searchInput, { flex: 1 }]}
+    autoCapitalize="characters"
+    maxLength={2}
+  />
+
+  <TextInput
+    value={addressForm.zip}
+    onChangeText={(v) => setAddressForm({ ...addressForm, zip: v })}
+    placeholder="Zip"
+    style={[styles.searchInput, { flex: 1 }]}
+    keyboardType="number-pad"
+    maxLength={10}
+  />
+</View>
 
     <View style={{ flexDirection: 'row', gap: 16, marginTop: 12 }}>
       <Pressable onPress={() => setManualLocationOpen(false)}>
@@ -846,30 +941,64 @@ loadNoteSummary();
       </Pressable>
 
       <Pressable
-        onPress={async () => {
-          const parsed = parseCoords(manualCoordsText);
-          if (!parsed) {
-            Alert.alert('Invalid coordinates', 'Paste like: (30.0715208, -92.0842122)');
-            return;
-          }
+onPress={async () => {
+  try {
+    const structuredAddress = {
+      street: addressForm.street.trim(),
+      city: addressForm.city.trim(),
+      state: addressForm.state.trim(),
+      zip: addressForm.zip.trim(),
+    };
 
-          try {
-            await apiFetch(`/api/job/${id}/meta`, {
-              method: 'POST',
-              body: JSON.stringify({
-                name: jobName,
-                latitude: parsed.lat,
-                longitude: parsed.lng,
-              }),
-            });
+    const hasStructuredAddress =
+      structuredAddress.street.length > 0;
 
-            setJobCoords({ latitude: parsed.lat, longitude: parsed.lng });
-            setManualLocationOpen(false);
-            Alert.alert('Saved', 'Job location updated.');
-          } catch {
-            Alert.alert('Error', 'Failed to save location.');
-          }
-        }}
+    // ✅ 1️⃣ Structured address takes priority
+    if (hasStructuredAddress) {
+      await apiFetch(`/api/job/${id}/meta`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: jobName,
+          latitude: null,
+          longitude: null,
+          address: JSON.stringify(structuredAddress),
+        }),
+      });
+
+      setJobCoords({ latitude: null, longitude: null });
+      setJobAddress(structuredAddress);
+    } else {
+      // ✅ 2️⃣ Try coordinates
+      const parsed = parseCoords(manualCoordsText);
+
+      if (!parsed) {
+        Alert.alert(
+          'Invalid Location',
+          'Enter a street address OR valid coordinates.'
+        );
+        return;
+      }
+
+      await apiFetch(`/api/job/${id}/meta`, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: jobName,
+          latitude: parsed.lat,
+          longitude: parsed.lng,
+          address: null,
+        }),
+      });
+
+      setJobCoords({ latitude: parsed.lat, longitude: parsed.lng });
+      setJobAddress(null);
+    }
+
+    setManualLocationOpen(false);
+    Alert.alert('Saved', 'Job location updated.');
+  } catch {
+    Alert.alert('Error', 'Failed to save location.');
+  }
+}}
       >
         <Text style={{ color: '#2563eb', fontWeight: '700' }}>
           Save
