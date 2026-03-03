@@ -32,7 +32,8 @@ name,
 is_template as "isTemplate",
 latitude,
 longitude,
-pdf_id as "pdfId"
+  pdf_id as "pdfId",
+  address
   FROM jobs
   WHERE id = $1
     AND tenant_id = $2
@@ -233,6 +234,8 @@ router.post("/job/:jobId/meta", async (req, res) => {
     return res.status(400).json({ error: "Missing jobId" });
   }
 
+  console.log("🔥 META BODY RECEIVED:", req.body);
+
 const name =
   typeof req.body?.name === "string"
     ? req.body.name.trim()
@@ -253,7 +256,18 @@ const longitude =
     ? req.body.pdfId
     : null;
 
-if (!name && latitude === null && longitude === null && !pdfId) {
+    const address =
+  typeof req.body?.address === "string"
+    ? req.body.address
+    : null;
+
+if (
+  !name &&
+  latitude === null &&
+  longitude === null &&
+  !pdfId &&
+  address === null
+) {
   return res.status(400).json({ error: "Nothing to update" });
 }
 
@@ -264,19 +278,20 @@ if ((latitude === null) !== (longitude === null)) {
 }
 
   try {
-    await pool.query(
-      `
-INSERT INTO jobs (id, name, tenant_id, latitude, longitude, pdf_id)
-VALUES ($1, $2, $3, $4, $5, $6)
+await pool.query(
+  `
+INSERT INTO jobs (id, name, tenant_id, latitude, longitude, pdf_id, address)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (id, tenant_id)
 DO UPDATE SET
   name = COALESCE(EXCLUDED.name, jobs.name),
   latitude = COALESCE(EXCLUDED.latitude, jobs.latitude),
   longitude = COALESCE(EXCLUDED.longitude, jobs.longitude),
-  pdf_id = COALESCE(EXCLUDED.pdf_id, jobs.pdf_id)
-      `,
-      [jobId, name, tenantId, latitude, longitude, pdfId]
-    );
+  pdf_id = COALESCE(EXCLUDED.pdf_id, jobs.pdf_id),
+  address = COALESCE(EXCLUDED.address, jobs.address)
+  `,
+  [jobId, name, tenantId, latitude, longitude, pdfId, address]
+);
 
     res.json({ success: true });
   } catch (err) {
