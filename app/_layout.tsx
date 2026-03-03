@@ -21,37 +21,55 @@ const { hasShareIntent } = useShareIntent();
 
 // 1️⃣ Load initial session + subscribe
 useEffect(() => {
-let mounted = true;
-async function init() {
-const { data } = await supabase.auth.getSession();
-console.log('🔎 getSession on launch:', data.session);
-if (!mounted) return;
-setSession(data.session);
-const { data: sub } = supabase.auth.onAuthStateChange(
-  (event, session) => {
+  let mounted = true;
 
-    if (event === 'PASSWORD_RECOVERY') {
-      router.replace('/(auth)/update-password');
-      return;
-    }
+  async function init() {
+    const { data } = await supabase.auth.getSession();
+    console.log('🔎 getSession on launch:', data.session);
 
-        // 🔥 ADD THIS
-    if (!session) {
-      router.replace('/(auth)/login');
-      return;
-    }
+    if (!mounted) return;
 
-    setSession(session);
+    setSession(data.session ?? null);
+    setReady(true);
+
+    const { data: sub } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+
+        if (event === 'PASSWORD_RECOVERY') {
+          router.replace('/(auth)/update-password');
+          return;
+        }
+
+        setSession(session ?? null);
+      }
+    );
+
+    return () => sub.subscription.unsubscribe();
   }
-);
-setReady(true);
-return () => sub.subscription.unsubscribe();
-    }
-init();
-return () => {
-mounted = false;
-    };
-  }, []);
+
+  init();
+
+  return () => {
+    mounted = false;
+  };
+}, []);
+
+useEffect(() => {
+  if (!ready) return;
+
+  const inAuthGroup = segments[0] === '(auth)';
+
+  if (!session && !inAuthGroup) {
+    router.replace('/(auth)/login');
+    return;
+  }
+
+  if (session && inAuthGroup) {
+    router.replace('/main');
+    return;
+  }
+
+}, [ready, session, segments]);
 
 
 useEffect(() => {

@@ -19,7 +19,7 @@ import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
 import pushRoutes from "./routes/push";
 import jobPdfsRoutes from "./routes/jobPdfs";
-
+import pdfOverlayRoutes from "./routes/pdfOverlays";
 import { activateDuePhases } from "./automation/activateDuePhases";
 import contractorPhaseNotes from "./routes/contractorPhaseNotes";
 import ordersRouter from "./routes/orders";
@@ -95,6 +95,7 @@ app.use("/api/orders", ordersRouter);
 app.use('/api/supervisor-phase-notes', supervisorPhaseNotes);
 app.use("/api/tenant/users", tenantUsersRoutes);
 app.use("/api/suppliers", suppliersRoutes);
+app.use("/api/pdf-overlays", pdfOverlayRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
 app.use("/api/phases", phasesRoutes);
