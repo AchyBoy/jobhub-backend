@@ -1134,7 +1134,7 @@ jobSupervisors.map((s: any, index: number) => {
     style={styles.locationPill}
 onPress={() => {
   if (jobPdfId) {
-    openJobPdf();
+    router.push(`/job/${id}/pdf-editor`);
   } else {
     router.push(`/job/${id}/defaults`);
   }
