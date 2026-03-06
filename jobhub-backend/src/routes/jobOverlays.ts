@@ -16,12 +16,14 @@ router.put("/:jobId", async (req: any, res) => {
 
     const filePath = `job_${jobId}.overlay.json`;
 
-    const { error } = await supabaseAdmin.storage
-      .from("job-overlays")
-      .upload(filePath, JSON.stringify(overlay), {
-        upsert: true,
-        contentType: "application/json",
-      });
+const json = JSON.stringify(overlay);
+
+const { error } = await supabaseAdmin.storage
+  .from("job-overlays")
+  .upload(filePath, Buffer.from(json), {
+    upsert: true,
+    contentType: "application/json",
+  });
 
     if (error) throw error;
 

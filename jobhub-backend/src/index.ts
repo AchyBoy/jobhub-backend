@@ -12,8 +12,10 @@ import { testPostgresConnection } from "./db/postgres";
 import express from "express";
 import cors from "cors";
 import jobOverlaysRoute from "./routes/jobOverlays";
+import automationsRouter from "./routes/automations"
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
+import templateNotes from "./routes/templateNotes"
 import tenantRoutes from "./routes/tenant";
 import phaseGroupsRouter from './routes/phaseGroups';
 import phasesRoutes from "./routes/phases";
@@ -77,6 +79,7 @@ app.use("/api/crew", crewRoutes);
 app.use("/api/tenant", tenantRoutes);
 
 app.use("/api/job-overlays", jobOverlaysRoute);
+app.use("/api/automations", automationsRouter)
 app.use("/api/crews", crewsRoutes);
 app.use("/api/contractors", contractorsRoutes);
 app.use("/api/vendors", vendorsRoutes);
@@ -98,6 +101,7 @@ app.use("/api/job-pdfs", jobPdfsRoutes);
 app.use("/api/scheduled-tasks", scheduledTasksRoutes);
 app.use("/api/materials", materialsRoutes);
 app.use("/api/orders", ordersRouter);
+app.use("/api/templates/notes", templateNotes)
 app.use('/api/supervisor-phase-notes', supervisorPhaseNotes);
 app.use("/api/tenant/users", tenantUsersRoutes);
 app.use("/api/suppliers", suppliersRoutes);

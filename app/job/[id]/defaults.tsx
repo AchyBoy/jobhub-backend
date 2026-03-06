@@ -254,42 +254,90 @@ try {
 
 async function uploadPdf() {
   try {
+
+    console.log("📄 Starting PDF upload");
+
     const result = await DocumentPicker.getDocumentAsync({
       type: 'application/pdf',
       copyToCacheDirectory: true,
     });
 
-    if (result.canceled) return;
+    console.log("📄 picker result:", result);
+
+    if (result.canceled) {
+      console.log("📄 picker canceled");
+      return;
+    }
 
     const file = result.assets[0];
+
+    console.log("📄 picked file:", {
+      name: file.name,
+      uri: file.uri,
+      size: file.size,
+      mime: file.mimeType,
+    });
 
     setUploadingPdf(true);
 
     const formData = new FormData();
+
     formData.append('jobId', jobId);
+
     formData.append('pdf', {
       uri: file.uri,
-      name: file.name,
+      name: file.name ?? 'job.pdf',
       type: 'application/pdf',
     } as any);
+
+    console.log("📄 formData prepared");
 
     const res = await apiFetch('/api/job-pdfs/upload', {
       method: 'POST',
       body: formData,
     });
 
+    console.log("📄 upload response:", res);
+
     const fileId = res?.file?.id;
 
     if (!fileId) {
-      throw new Error('Upload failed');
+      console.log("❌ upload failed — no file id returned");
+      throw new Error("Upload failed: no file id");
     }
 
-    setJobPdfId(fileId);
+setJobPdfId(fileId);
 
-    Alert.alert('Success', 'PDF uploaded and attached to job.');
-  } catch (e) {
-    console.log(e);
-    Alert.alert('Error', 'Failed to upload PDF.');
+console.log("✅ upload success fileId:", fileId);
+
+// 🔄 force refresh job pointer from backend
+try {
+  const jobRes = await apiFetch(`/api/job/${jobId}`);
+
+  console.log("📄 refreshed job after upload:", jobRes);
+
+  if (jobRes?.job?.pdfId) {
+    setJobPdfId(jobRes.job.pdfId);
+  }
+} catch (err) {
+  console.log("⚠️ job refresh failed after upload", err);
+}
+
+Alert.alert('Success', 'PDF uploaded and attached to job.');
+
+  } catch (e: any) {
+
+    console.log("❌ PDF upload error:", e);
+
+    if (e?.response) {
+      console.log("❌ server response:", e.response);
+    }
+
+    Alert.alert(
+      'Upload Error',
+      e?.message ?? 'Failed to upload PDF.'
+    );
+
   } finally {
     setUploadingPdf(false);
   }

@@ -1,4 +1,5 @@
 // JobHub/app/_layout.tsx
+
 import { useEffect, useState } from 'react';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import { supabase } from '../src/lib/supabase';
@@ -7,6 +8,7 @@ import { Text } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { AppState } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useShareIntent } from 'expo-share-intent';
 import * as Notifications from "expo-notifications";
 
@@ -192,8 +194,9 @@ if (!ready) {
 
 
 return (
-  <Stack
-    screenOptions={{
+  <GestureHandlerRootView style={{ flex: 1 }}>
+    <Stack
+      screenOptions={{
       headerBackTitle: 'Back',
       headerRight: () => {
         const isInsideMain = segments[0] === 'main';
@@ -240,7 +243,10 @@ return (
     <Stack.Screen name="job/[id]/materials" />
 <Stack.Screen name="job/[id]/send-links" />
 <Stack.Screen name="job/[id]/defaults" />
+<Stack.Screen name="job/[id]/pdf-editor" options={{ title: 'PDF Editor' }} />
 <Stack.Screen name="job/[id]/scheduling" />
-  </Stack>
+
+    </Stack>
+  </GestureHandlerRootView>
 );
 }

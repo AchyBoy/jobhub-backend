@@ -345,11 +345,14 @@ function isStorageOrdered(material: any) {
 const {
   materialsByPhase,
   materialsBySupplier,
+  materialsByVendor,
   internalMaterials,
   activeSupplierIds,
+  activeVendorIds,
 } = useMemo(() => {
   const byPhase: Record<string, any[]> = {};
   const bySupplier: Record<string, any[]> = {};
+const byVendor: Record<string, any[]> = {};
   const internal: any[] = [];
 
   for (const m of materials) {
@@ -374,8 +377,8 @@ if (m.supplier_id) {
 }
 
 if (m.vendor_id) {
-  if (!bySupplier[m.vendor_id]) bySupplier[m.vendor_id] = [];
-  bySupplier[m.vendor_id].push(m);
+  if (!byVendor[m.vendor_id]) byVendor[m.vendor_id] = [];
+  byVendor[m.vendor_id].push(m);
 }
 
     // internal bucket
@@ -397,12 +400,23 @@ const activeSuppliers = Object.keys(bySupplier).filter(supplierId =>
   )
 );
 
+  const activeVendors = Object.keys(byVendor).filter(vendorId =>
+  byVendor[vendorId].some((m: any) =>
+    (m.qty_needed ?? 0) > 0 ||
+    (m.qty_ordered ?? 0) > 0 ||
+    (m.qty_from_storage ?? 0) > 0 ||
+    (m.qty_on_hand_applied ?? 0) > 0
+  )
+);
+
 
 return {
   materialsByPhase: byPhase,
   materialsBySupplier: bySupplier,
+  materialsByVendor: byVendor,
   internalMaterials: internal,
   activeSupplierIds: activeSuppliers,
+  activeVendorIds: activeVendors,
 };
 
 }, [materials, showActiveOnly]);
@@ -410,6 +424,10 @@ return {
 const selectedSupplierHasItems =
   !!newSupplierId &&
   activeSupplierIds.includes(newSupplierId);
+
+const selectedVendorHasItems =
+  !!newVendorId &&
+  activeVendorIds.includes(newVendorId);
 
 useEffect(() => {
   loadMaterials();
@@ -1066,6 +1084,7 @@ try {
       //pdf generation logic
 const { orderId, uri } = await generateOrderPdf({
   jobId,
+  jobName,
   phase: newPhase!,
   supplierName,
 items: itemsToOrder.map(it => {
@@ -1599,33 +1618,52 @@ return (
       color: newVendorId ? '#15803d' : '#000',
     }}
   >
-    Vendor: {
-      newVendorId
-        ? vendorMap[newVendorId]?.name
-        : 'Select Vendor'
-    }
+Vendor: {
+  newVendorId
+    ? vendorMap[newVendorId]?.name
+    : 'Select Vendor'
+}
+{selectedVendorHasItems ? ' • Has Qty' : ''}
   </Text>
 </Pressable>
 
-    {vendorPickerOpen && (
-      <View style={{ marginBottom: 10 }}>
-        {vendors.map(v => (
-          <Pressable
-            key={v.id}
-            onPress={async () => {
-              setNewVendorId(v.id);
-              setNewSupplierId(null);
-              await AsyncStorage.setItem('materials:selectedVendor', v.id);
-              setVendorPickerOpen(false);
+{vendorPickerOpen && (
+  <View style={{ marginBottom: 10 }}>
+    {vendors.map(v => {
+      const hasItems = activeVendorIds.includes(v.id);
+
+      return (
+        <Pressable
+          key={v.id}
+          onPress={async () => {
+            setNewVendorId(v.id);
+            setNewSupplierId(null);
+            await AsyncStorage.setItem('materials:selectedVendor', v.id);
+            setVendorPickerOpen(false);
+          }}
+          style={[
+            styles.selectorOption,
+            hasItems && {
+              borderWidth: 2,
+              borderColor: '#3b82f6',
+            },
+          ]}
+        >
+          <Text
+            style={{
+              fontWeight: hasItems ? '600' : '400',
+              color: hasItems ? '#1e3a8a' : '#6b7280',
             }}
-            style={styles.selectorOption}
           >
-            <Text>{v.name}</Text>
-          </Pressable>
-        ))}
-      </View>
-    )}
-  </>
+            {v.name}
+            {hasItems ? ' • Has Qty' : ''}
+          </Text>
+        </Pressable>
+      );
+    })}
+  </View>
+)}
+</>
 )}
 
 </View>
@@ -2591,6 +2629,64 @@ style={[
   </View>
 )}
 
+{/* VENDOR BUCKETS */}
+{activeVendorIds.length > 0 && (
+  <View style={{ marginTop: 24 }}>
+    <Text style={{ fontWeight: '700', fontSize: 18, marginBottom: 12 }}>
+      Vendor Buckets
+    </Text>
+
+    {activeVendorIds.map((vendorId) => {
+      const vendor = vendorMap[vendorId];
+      if (!vendor) return null;
+
+      const vendorMaterials = materialsByVendor[vendorId] || [];
+
+      const isExpanded = expandedSuppliers[vendorId];
+
+      return (
+        <View key={vendorId} style={{ marginBottom: 16 }}>
+          <Pressable
+            onPress={() =>
+              setExpandedSuppliers(prev => ({
+                ...prev,
+                [vendorId]: !prev[vendorId],
+              }))
+            }
+            style={{
+              backgroundColor: '#f1f5f9',
+              padding: 12,
+              borderRadius: 12,
+            }}
+          >
+            <Text style={{ fontWeight: '700', fontSize: 16 }}>
+              {vendor.name} ({vendorMaterials.length}) {isExpanded ? '▲' : '▼'}
+            </Text>
+          </Pressable>
+
+          {isExpanded && (
+            <View style={{ marginTop: 10 }}>
+              {vendorMaterials.map((material: any) => (
+                <View key={material.id} style={styles.card}>
+                  <Text style={styles.itemTitle}>{material.item_name}</Text>
+
+                  <Text style={styles.meta}>
+                    Needed: {material.qty_needed ?? 0}
+                  </Text>
+
+                  <Text style={styles.meta}>
+                    Ordered: {material.qty_ordered ?? 0}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </View>
+      );
+    })}
+  </View>
+)}
+
     </ScrollView>
 {addMode && (
 <View style={styles.bottomAddBar}>
@@ -2642,7 +2738,7 @@ style={[
                 // setNewItemCode(s.code ?? null);
 
                 setShowNameSuggestions(false);
-                Keyboard.dismiss();
+              
               }}
               style={{
                 paddingVertical: 10,

@@ -83,11 +83,14 @@ function showJobDetailsHelp() {
 function showCoordsHelp() {
   Alert.alert(
     'How to get coordinates',
-    'Open Apple Maps or Google Maps.\n\n' +
+    'Open Google Maps or Apple Maps.\n\n' +
       '1) Search the address\n' +
-      '2) Long-press / drop a pin\n' +
-      '3) Copy the coordinates\n\n' +
-      'Paste format example:\n(30.0715208, -92.0842122)'
+      '2) Drop a pin by holding on the map\n' +
+      '3) The coordinates will appear\n' +
+      '4) Tap to copy them\n\n' +
+      'Example format:\n' +
+      '(30.0715208, -92.0842122)\n\n' +
+      'Tip:\nDropping a pin gives more accurate coordinates than searching an address.'
   );
 }
 
@@ -889,18 +892,20 @@ loadNoteSummary();
       </Pressable>
     </View>
 
-    <Text style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
-      Examples:
+<Text style={{ marginTop: 6, fontSize: 12, color: '#64748b' }}>
+Examples:
 123 Main St Zachary LA
 HXP3+RG Zachary Louisiana
 (30.0715208, -92.0842122)
-    </Text>
+
+You may paste coordinates directly into the street field.
+</Text>
 
 {/* Street */}
 <TextInput
   value={addressForm.street}
   onChangeText={(v) => setAddressForm({ ...addressForm, street: v })}
-  placeholder="Street Address"
+    placeholder="Street Address or Coordinates"
   style={[styles.searchInput, { marginTop: 10 }]}
 />
 
@@ -1149,11 +1154,11 @@ onPress={() => {
       : 'Upload PDF'}
 </Text>
 
-    <Text style={styles.locationHint}>
-      {jobPdfId
-        ? 'PDF is attached to this job'
-        : 'No PDF attached yet'}
-    </Text>
+<Text style={styles.locationHint}>
+  {jobPdfId
+    ? 'Tap to view • Replace in Set Defaults'
+    : 'No PDF attached yet • Upload in Set Defaults'}
+</Text>
   </Pressable>
 </View>
 

@@ -10,7 +10,7 @@ import {
   Platform,
   Linking,
 } from 'react-native';
-
+import { Alert } from 'react-native';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { useState, useEffect } from 'react';
 import { apiFetch } from '../../src/lib/apiClient';
@@ -18,7 +18,7 @@ import { apiFetch } from '../../src/lib/apiClient';
 export default function ServiceScreen() {
 const router = useRouter();
 const { serviceCaseId } = useLocalSearchParams<{ serviceCaseId?: string }>();
-
+const [scheduleDate, setScheduleDate] = useState<string | null>(null);
 const isEditMode =
   typeof serviceCaseId === 'string' &&
   serviceCaseId.length > 0;
@@ -213,17 +213,55 @@ async function loadJobs() {
             style={[styles.input, { height: 100 }]}
           />
 
+          <Text style={styles.label}>Schedule Date (optional)</Text>
+
+<View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+  <Pressable
+    onPress={() => {
+      const today = new Date();
+      today.setHours(8, 0, 0, 0);
+      setScheduleDate(today.toISOString());
+    }}
+    style={{
+      borderWidth: 1,
+      borderColor: '#ddd',
+      borderRadius: 10,
+      padding: 10,
+      flex: 1,
+      backgroundColor: '#fff',
+    }}
+  >
+    <Text>
+      {scheduleDate
+        ? new Date(scheduleDate).toLocaleDateString()
+        : 'Tap to set today'}
+    </Text>
+  </Pressable>
+
+  <Pressable
+    onPress={() =>
+      Alert.alert(
+        'Scheduling Service',
+        'If you set a date now, the service will be scheduled immediately and crews will receive push notifications. If left empty, the service will appear as an unscheduled request until scheduled later.'
+      )
+    }
+  >
+    <Text style={{ color: '#16a34a', fontWeight: '700' }}>?</Text>
+  </Pressable>
+</View>
+
 <Pressable
   style={styles.button}
   onPress={async () => {
     if (!search.trim()) return;
 
-    const payload = {
-      propertyName: search.trim(),
-      ownerName: ownerName || null,
-      description: description || null,
-      contacts,
-    };
+const payload = {
+  propertyName: search.trim(),
+  ownerName: ownerName || null,
+  description: description || null,
+  contacts,
+  scheduledAt: scheduleDate,
+};
 
     try {
       if (isEditMode) {

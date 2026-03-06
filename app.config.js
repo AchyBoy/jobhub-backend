@@ -58,13 +58,20 @@ plugins: [
   'expo-web-browser',
   'expo-notifications',
   [
-    'expo-share-intent',
-    {
-      ios: {
-        activationRules: {
-          supportsFile: true,
-          fileTypes: ['com.adobe.pdf'],
-          maxFileCount: 1,
+  'expo-share-intent',
+  {
+    ios: {
+      activationRules: {
+        supportsFile: true,
+        supportsText: true,
+        supportsWebURL: true,
+        fileTypes: [
+          'com.adobe.pdf',
+          'public.pdf',
+          'public.data',
+          'public.file-url'
+        ],
+        maxFileCount: 1,
         },
       },
     },

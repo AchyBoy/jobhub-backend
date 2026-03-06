@@ -4,6 +4,7 @@ import { requireAuthWithTenant } from "../middleware/requireAuthWithTenant";
 // ⚠️ JSON store intentionally NOT imported here
 // Notes are persisted ONLY in Postgres
 import { pool } from "../db/postgres";
+import { runNoteIncompleteAutomations } from "./automationEngine";
 
 const router = Router();
 
@@ -103,11 +104,28 @@ if (jobResult.rowCount === 0) {
 }
 
     const tenantId = jobResult.rows[0].tenant_id;
+    const notesThatBecameIncomplete: string[] = [];
+const previousNoteStates: Record<string, string | null> = {};
 
         // ✅ LOG #3 — confirm tenant resolved
     console.log("🏷️ TENANT RESOLVED", { jobId, tenantId });
 
 for (const n of rawNotes) {
+
+  // fetch existing note status (if it exists)
+  const prev = await client.query(
+    `
+    SELECT status
+    FROM notes
+    WHERE id = $1
+    AND tenant_id = $2
+    LIMIT 1
+    `,
+    [n.id, tenantId]
+  );
+
+  previousNoteStates[n.id] =
+    prev.rowCount > 0 ? prev.rows[0].status : null;
   
     await client.query(
       `
@@ -153,9 +171,29 @@ VALUES (
   n.createdAt ?? null,
 ]
     );
+    // 🔄 NOTE AUTOMATION TRIGGER
+if (
+  n.status === "incomplete" &&
+  previousNoteStates[n.id] !== "incomplete"
+) {
+  notesThatBecameIncomplete.push(n.noteA ?? n.text ?? "");
+}
   }
 
   await client.query("COMMIT");
+
+  // 🔄 RUN AUTOMATIONS AFTER COMMIT
+for (const noteName of notesThatBecameIncomplete) {
+  try {
+    await runNoteIncompleteAutomations({
+      tenantId,
+      jobId,
+      noteName,
+    });
+  } catch (err) {
+    console.error("Automation engine failed:", err);
+  }
+}
   res.json({ success: true });
 } catch (err) {
   await client.query("ROLLBACK");

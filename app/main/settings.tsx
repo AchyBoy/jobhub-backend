@@ -12,6 +12,7 @@ export default function SettingsScreen() {
   const router = useRouter();
 
 const [role, setRole] = useState<string | null>(null);
+const [pushEnabled, setPushEnabled] = useState(false);
 
 useEffect(() => {
   async function loadRole() {
@@ -23,7 +24,17 @@ useEffect(() => {
     }
   }
 
+  async function checkPushStatus() {
+  try {
+    const res = await apiFetch("/api/push/me");
+    setPushEnabled(!!res?.expoPushToken);
+  } catch {
+    setPushEnabled(false);
+  }
+}
   loadRole();
+checkPushStatus();
+
 }, []);
 
   return (
@@ -114,33 +125,58 @@ useEffect(() => {
 
 
 
-<Pressable //PUSH NOTIFICATIONS BUTTON
+<Pressable
   style={[styles.item, { marginTop: 16 }]}
   onPress={async () => {
     try {
-      const token = await registerForPushNotifications();
-      if (!token) {
-        alert("Push permission not granted");
-        return;
+
+      if (pushEnabled) {
+
+        await apiFetch("/api/push/unregister", {
+          method: "POST",
+        });
+
+        setPushEnabled(false);
+        alert("Push notifications disabled");
+
+      } else {
+
+        const token = await registerForPushNotifications();
+
+        if (!token) {
+          alert("Push permission not granted");
+          return;
+        }
+
+        await apiFetch("/api/push/register", {
+          method: "POST",
+          body: JSON.stringify({
+            expoPushToken: token,
+          }),
+        });
+
+        setPushEnabled(true);
+        alert("Push notifications enabled");
       }
 
-      await apiFetch("/api/push/register", {
-        method: "POST",
-        body: JSON.stringify({
-          expoPushToken: token,
-        }),
-      });
-
-      alert("Push notifications enabled");
     } catch (err) {
-      console.log("Push registration failed", err);
-      alert("Push registration failed");
+      console.log("Push toggle failed", err);
+      alert("Push update failed");
     }
   }}
 >
   <Text style={styles.itemText}>
-    Enable Push Notifications
+    {pushEnabled ? "Disable Push Notifications" : "Enable Push Notifications"}
   </Text>
+</Pressable>
+
+  <Text style={styles.sectionHeader}>Automation</Text>
+
+<Pressable
+  style={[styles.item, { marginTop: 12 }]}
+  onPress={() => router.push('/main/automation')}
+>
+  <Text style={styles.itemText}>Automation Rules</Text>
 </Pressable>
 
 <Pressable

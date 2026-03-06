@@ -7,10 +7,11 @@ import { v4 as uuidv4 } from 'uuid';
 
 export async function generateOrderPdf(args: {
   jobId: string;
+  jobName?: string;
   phase: string;
   supplierName: string;
   items: { name: string; code?: string; qty: number }[];
-}) {
+}){
   const orderId = uuidv4(); // real UUID (required for Postgres uuid column)
 
   const rows = args.items
@@ -29,7 +30,8 @@ export async function generateOrderPdf(args: {
   <html>
     <body style="font-family: Arial; padding: 24px;">
       <h1>Material Order</h1>
-      <p><strong>Job:</strong> ${args.jobId}</p>
+      <p><strong>Job:</strong> ${args.jobName ?? args.jobId}</p>
+<p style="font-size:12px; color:#555;">Job ID: ${args.jobId}</p>
       <p><strong>Phase:</strong> ${args.phase}</p>
       <p><strong>Supplier:</strong> ${args.supplierName}</p>
       <hr />

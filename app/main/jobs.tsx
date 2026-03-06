@@ -17,7 +17,9 @@ type Job = {
   notes?: string;
 
   incompleteNoteCount?: number;
-  unorderedItemCount?: number;
+
+  supplierUnorderedCount?: number;
+  vendorUnorderedCount?: number;
 };
 
 export default function JobsScreen() {
@@ -351,13 +353,21 @@ return (
     </View>
   )}
 
-  {(item.unorderedItemCount ?? 0) > 0 && (
-    <View style={styles.materialBadge}>
-      <Text style={styles.badgeText}>
-        {item.unorderedItemCount} Items Not Ordered
-      </Text>
-    </View>
-  )}
+{(item.supplierUnorderedCount ?? 0) > 0 && (
+  <View style={styles.materialBadge}>
+    <Text style={styles.badgeText}>
+      {item.supplierUnorderedCount} Supplier Items Not Ordered
+    </Text>
+  </View>
+)}
+
+{(item.vendorUnorderedCount ?? 0) > 0 && (
+  <View style={styles.materialBadge}>
+    <Text style={styles.badgeText}>
+      {item.vendorUnorderedCount} Vendor Items Not Ordered
+    </Text>
+  </View>
+)}
 </View>
 
   {item.isTemplate && (

@@ -53,38 +53,6 @@ router.post(
 
       const previousPdfId = existingRes.rows[0]?.pdf_id ?? null;
 
-      // 1.5️⃣ If previous PDF exists, delete it (DB + Storage)
-if (previousPdfId) {
-  const oldRes = await client.query(
-    `
-    SELECT storage_path
-    FROM job_pdfs
-    WHERE id=$1 AND tenant_id=$2
-    `,
-    [previousPdfId, tenantId]
-  );
-
-const oldStoragePath = oldRes.rows[0]?.storage_path;
-
-if (oldStoragePath) {
-  const { error: removeError } = await supabaseAdmin.storage
-    .from("job-pdfs")
-    .remove([oldStoragePath]);
-
-  if (removeError) {
-    throw new Error(removeError.message);
-  }
-}
-
-  await client.query(
-    `
-    DELETE FROM job_pdfs
-    WHERE id=$1 AND tenant_id=$2
-    `,
-    [previousPdfId, tenantId]
-  );
-}
-
       // 2️⃣ Upload to Supabase
       const { error } = await supabaseAdmin.storage
         .from("job-pdfs")
@@ -122,6 +90,68 @@ if (oldStoragePath) {
         `,
         [fileId, jobId, tenantId]
       );
+
+      // 5️⃣ Now safe to delete previous PDF
+if (previousPdfId) {
+
+  const oldRes = await client.query(
+    `
+    SELECT storage_path
+    FROM job_pdfs
+    WHERE id=$1 AND tenant_id=$2
+    `,
+    [previousPdfId, tenantId]
+  );
+
+ const oldStoragePath = oldRes.rows[0]?.storage_path;
+
+// 🔎 DEBUG: see what jobs still reference this PDF
+const refCheck = await client.query(
+  `
+  SELECT id, tenant_id, pdf_id
+  FROM jobs
+  WHERE pdf_id=$1
+  `,
+  [previousPdfId]
+);
+
+console.log("🔎 Jobs still referencing old PDF before delete:", {
+  previousPdfId,
+  rows: refCheck.rows,
+});
+
+if (oldStoragePath) {
+  const { error: removeError } = await supabaseAdmin.storage
+    .from("job-pdfs")
+    .remove([oldStoragePath]);
+
+  if (removeError) {
+    throw new Error(removeError.message);
+  }
+}
+
+await client.query(
+  `
+  DELETE FROM job_pdfs
+  WHERE id=$1 AND tenant_id=$2
+  `,
+  [previousPdfId, tenantId]
+);
+
+console.log("🔎 Jobs still referencing old PDF:", {
+  previousPdfId,
+  rows: refCheck.rows
+});
+
+// attempt delete
+await client.query(
+  `
+  DELETE FROM job_pdfs
+  WHERE id=$1 AND tenant_id=$2
+  `,
+  [previousPdfId, tenantId]
+);
+}
 
       await client.query("COMMIT");
 

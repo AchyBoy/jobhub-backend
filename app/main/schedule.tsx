@@ -1430,22 +1430,46 @@ const merged = [...withoutSynthetic, normalized];
       : ''}
 </Text>
 
-<View style={{ flexDirection: 'row', gap: 20, marginBottom: 12 }}>
-  <Pressable
-    onPress={() => setIsCreating(!isCreating)}
-  >
+<View style={{ flexDirection: 'row', gap: 24, marginBottom: 12, alignItems: 'center' }}>
+
+<View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+  <Pressable onPress={() => setIsCreating(!isCreating)}>
     <Text style={{ color: '#2563eb', fontWeight: '700' }}>
       + Add Task
     </Text>
   </Pressable>
 
   <Pressable
-    onPress={() => router.push('/main/service')}
+    onPress={() =>
+      Alert.alert(
+        'Add Task',
+        'Creates a scheduled job task for a specific date, crew, and phase.'
+      )
+    }
   >
+    <Text style={{ color: '#2563eb', fontWeight: '700' }}>?</Text>
+  </Pressable>
+</View>
+
+<View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+  <Pressable onPress={() => router.push('/main/service')}>
     <Text style={{ color: '#16a34a', fontWeight: '700' }}>
       + Service
     </Text>
   </Pressable>
+
+  <Pressable
+    onPress={() =>
+      Alert.alert(
+        'Service',
+        'Service items appear every day until scheduled. They do not show a calendar indicator until they are scheduled.'
+      )
+    }
+  >
+    <Text style={{ color: '#16a34a', fontWeight: '700' }}>?</Text>
+  </Pressable>
+</View>
+
 </View>
 
     {isCreating && (
