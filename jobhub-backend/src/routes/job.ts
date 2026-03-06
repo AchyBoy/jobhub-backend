@@ -330,16 +330,41 @@ SELECT
       AND n.status = 'incomplete'
   )::int as "incompleteNoteCount",
 
-  -- 🔴 Unordered Materials Count
-  (
-    SELECT COUNT(*)
-    FROM materials m
-    WHERE m.job_id = j.id
-      AND m.tenant_id = j.tenant_id
-      AND COALESCE(m.qty_needed,0) >
-          (COALESCE(m.qty_ordered,0) + COALESCE(m.qty_from_storage,0))
-      AND COALESCE(m.qty_needed,0) > 0
-  )::int as "unorderedItemCount"
+-- 🔴 Supplier unordered items (only after ordering started)
+(
+  SELECT COUNT(*)
+  FROM materials m
+  WHERE m.job_id = j.id
+    AND m.tenant_id = j.tenant_id
+    AND m.supplier_id IS NOT NULL
+
+    -- item still needs ordering
+    AND COALESCE(m.qty_needed,0) >
+        (COALESCE(m.qty_ordered,0) + COALESCE(m.qty_from_storage,0))
+
+    -- ordering has started for that phase
+AND EXISTS (
+  SELECT 1
+  FROM materials m2
+  WHERE m2.job_id = m.job_id
+    AND m2.tenant_id = m.tenant_id
+    AND m2.phase = m.phase
+    AND m2.supplier_id IS NOT NULL
+    AND COALESCE(m2.qty_ordered,0) > 0
+)
+)::int as "supplierUnorderedCount",
+
+-- 🟠 Vendor unordered items (always strict)
+(
+  SELECT COUNT(*)
+  FROM materials m
+  WHERE m.job_id = j.id
+    AND m.tenant_id = j.tenant_id
+    AND m.supplier_id IS NULL   -- vendor items
+
+    AND COALESCE(m.qty_needed,0) >
+        (COALESCE(m.qty_ordered,0) + COALESCE(m.qty_from_storage,0))
+)::int as "vendorUnorderedCount"
 
 FROM jobs j
 WHERE j.tenant_id = $1
