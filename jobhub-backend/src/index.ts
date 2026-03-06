@@ -11,6 +11,7 @@ import templateRoutes from "./routes/templates";
 import { testPostgresConnection } from "./db/postgres";
 import express from "express";
 import cors from "cors";
+import jobOverlaysRoute from "./routes/jobOverlays";
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
 import tenantRoutes from "./routes/tenant";
@@ -66,16 +67,21 @@ app.use(express.json());
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
+app.get("/test-overlay", (req, res) => {
+  console.log("LOCAL SERVER HIT");
+  res.json({ ok: true });
+});
 
 // Crew endpoints (browser links will hit this)
 app.use("/api/crew", crewRoutes);
 app.use("/api/tenant", tenantRoutes);
-app.use("/api", jobRoutes);
+
+app.use("/api/job-overlays", jobOverlaysRoute);
 app.use("/api/crews", crewsRoutes);
 app.use("/api/contractors", contractorsRoutes);
-app.use('/api/phase-groups', phaseGroupsRouter);
 app.use("/api/vendors", vendorsRoutes);
 app.use("/api/supervisors", supervisorsRoutes);
+app.use("/api/phase-groups", phaseGroupsRouter);
 app.use("/api/jobs", jobCrewsRoutes);
 app.use("/api/push", pushRoutes);
 app.use("/api/service-cases", serviceCasesRouter);
@@ -99,6 +105,7 @@ app.use("/api/pdf-overlays", pdfOverlayRoutes);
 // Templates (office / app only)
 app.use("/api/templates", templateRoutes);
 app.use("/api/phases", phasesRoutes);
+app.use("/api", jobRoutes);
 
 const port = process.env.PORT ? Number(process.env.PORT) : 8787;
 
