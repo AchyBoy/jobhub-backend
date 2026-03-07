@@ -1299,6 +1299,17 @@ return (
   </Text>
 </Pressable>
 
+{/* Media */}
+<Pressable
+  style={styles.card}
+  onPress={() => router.push(`/job/${id}/media`)}
+>
+  <Text style={styles.cardTitle}>Media</Text>
+  <Text style={styles.cardSub}>
+    Photos & videos for this job
+  </Text>
+</Pressable>
+
     {/* Send Links */}
     <Pressable
       style={styles.card}

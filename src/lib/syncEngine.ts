@@ -2,6 +2,7 @@
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from './apiClient';
+import { supabase } from './supabase';
 
 type SyncItem =
   | {
@@ -18,6 +19,22 @@ type SyncItem =
     createdAt: string;
     payload: { id: string; name: string; contacts: any[] };
   }
+  | {
+    id: string;
+    type: 'media_upload';
+    coalesceKey: string;
+    createdAt: string;
+    payload: {
+      mediaId: string;
+      jobId: string;
+      storagePath: string;
+      localUri: string;
+      mimeType: string;
+      fileName: string;
+      sizeBytes: number;
+    };
+  } 
+
   | {
     id: string;
     type: 'supplier_upsert';
@@ -287,11 +304,15 @@ async function writeQueue(items: SyncItem[]) {
 export async function enqueueSync(item: SyncItem) {
   const q = await readQueue();
 
-  const idx = q.findIndex(x => x.coalesceKey === item.coalesceKey);
-  if (idx >= 0) {
-    q[idx] = item; // replace with newest payload
+  if (item.type === 'media_upload') {
+    q.push(item); // never coalesce media
   } else {
-    q.push(item);
+    const idx = q.findIndex(x => x.coalesceKey === item.coalesceKey);
+    if (idx >= 0) {
+      q[idx] = item; // replace with newest payload
+    } else {
+      q.push(item);
+    }
   }
 
   await writeQueue(q);
@@ -306,6 +327,12 @@ export async function enqueueSync(item: SyncItem) {
  */
 export async function flushSyncQueue() {
   const q = await readQueue();
+  // prioritize small uploads first (prevents videos blocking photos)
+q.sort((a, b) => {
+  const sizeA = (a as any)?.payload?.sizeBytes ?? 0;
+  const sizeB = (b as any)?.payload?.sizeBytes ?? 0;
+  return sizeA - sizeB;
+});
   if (q.length === 0) return;
 
   const remaining: SyncItem[] = [];
@@ -575,6 +602,41 @@ if (item.type === 'material_delete') {
 
   await apiFetch(`/api/materials/${materialId}`, {
     method: 'DELETE',
+  });
+}
+
+if (item.type === 'media_upload') {
+  const {
+    mediaId,
+    storagePath,
+    localUri,
+    mimeType,
+  } = item.payload as {
+    mediaId: string;
+    jobId: string;
+    storagePath: string;
+    localUri: string;
+    mimeType: string;
+    fileName: string;
+    sizeBytes: number;
+  };
+
+  const response = await fetch(localUri);
+  const blob = await response.blob();
+
+  const uploadRes = await supabase.storage
+    .from('job-media')
+    .upload(storagePath, blob, {
+      contentType: mimeType,
+      upsert: false,
+    });
+
+  if (uploadRes.error) {
+    throw uploadRes.error;
+  }
+
+  await apiFetch(`/api/media/complete/${mediaId}`, {
+    method: 'POST',
   });
 }
 

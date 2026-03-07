@@ -15,6 +15,7 @@ import jobOverlaysRoute from "./routes/jobOverlays";
 import automationsRouter from "./routes/automations"
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
+
 import templateNotes from "./routes/templateNotes"
 import tenantRoutes from "./routes/tenant";
 import phaseGroupsRouter from './routes/phaseGroups';
@@ -22,6 +23,7 @@ import phasesRoutes from "./routes/phases";
 import crewsRoutes from "./routes/crews";
 import pushRoutes from "./routes/push";
 import jobPdfsRoutes from "./routes/jobPdfs";
+import mediaRoutes from "./routes/media";
 import pdfOverlayRoutes from "./routes/pdfOverlays";
 import { activateDuePhases } from "./automation/activateDuePhases";
 import contractorPhaseNotes from "./routes/contractorPhaseNotes";
@@ -102,6 +104,7 @@ app.use("/api/scheduled-tasks", scheduledTasksRoutes);
 app.use("/api/materials", materialsRoutes);
 app.use("/api/orders", ordersRouter);
 app.use("/api/templates/notes", templateNotes)
+app.use("/api/media", mediaRoutes);
 app.use('/api/supervisor-phase-notes', supervisorPhaseNotes);
 app.use("/api/tenant/users", tenantUsersRoutes);
 app.use("/api/suppliers", suppliersRoutes);
