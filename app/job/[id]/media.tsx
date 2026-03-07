@@ -15,7 +15,7 @@ import {
   recordVideo,
   importFromLibrary
 } from '../../../src/lib/mediaCapture';
-
+import { Video } from 'expo-av';
 import { Alert } from 'react-native';
 import { Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -36,7 +36,7 @@ type MediaItem = {
 
 export default function JobMediaScreen() {
   const { id } = useLocalSearchParams();
-
+const [viewer, setViewer] = useState<MediaItem | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -244,18 +244,38 @@ console.log('🖼 renderItem', {
   onLongPress={() => deleteMedia(item)}
 >
 
-      {item.localUri ? (
-        <Image
-          source={{ uri: item.localUri }}
-          style={styles.image}
-          resizeMode="cover"
-        />
+{item.localUri ? (
+
+  item.mimeType?.startsWith('video') ? (
+    <Pressable onPress={() => setViewer(item)}>
+      <View style={styles.videoTile}>
+        <Text style={styles.playIcon}>▶</Text>
+      </View>
+    </Pressable>
+  ) : (
+    <Image
+      source={{ uri: item.localUri }}
+      style={styles.image}
+      resizeMode="cover"
+    />
+  )
+
 ) : item.signedUrl ? (
-  <Image
-    source={{ uri: item.signedUrl }}
-    style={styles.image}
-    resizeMode="cover"
-  />
+
+  item.mimeType?.startsWith('video') ? (
+    <Pressable onPress={() => setViewer(item)}>
+      <View style={styles.videoTile}>
+        <Text style={styles.playIcon}>▶</Text>
+      </View>
+    </Pressable>
+  ) : (
+    <Image
+      source={{ uri: item.signedUrl }}
+      style={styles.image}
+      resizeMode="cover"
+    />
+  )
+
 ) : (
         <View style={styles.placeholder}>
           <Text style={styles.placeholderText}>
@@ -308,6 +328,27 @@ console.log('🖼 renderItem', {
   >
     <Text style={styles.captureText}>+</Text>
   </Pressable>
+
+  {viewer && (
+  <View style={styles.viewer}>
+    <Pressable
+      style={styles.viewerClose}
+      onPress={() => setViewer(null)}
+    >
+      <Text style={{ color: '#fff', fontSize: 20 }}>✕</Text>
+    </Pressable>
+
+<Video
+  source={{
+    uri: viewer.localUri ?? viewer.signedUrl ?? ''
+  }}
+  style={styles.viewerVideo}
+  useNativeControls
+  resizeMode={'contain' as any}
+  shouldPlay
+/>
+  </View>
+)}
 
   </View>
   </>
@@ -371,6 +412,40 @@ image: {
     paddingVertical: 2,
     borderRadius: 6,
   },
+  videoTile: {
+  flex: 1,
+  backgroundColor: '#000',
+  borderRadius: 8,
+  alignItems: 'center',
+  justifyContent: 'center',
+},
+
+playIcon: {
+  fontSize: 26,
+  color: '#fff',
+},
+
+viewer: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: '#000',
+  justifyContent: 'center',
+},
+
+viewerVideo: {
+  width: '100%',
+  height: '80%',
+},
+
+viewerClose: {
+  position: 'absolute',
+  top: 50,
+  right: 20,
+  zIndex: 10,
+},
 
   pendingText: {
     fontSize: 9,

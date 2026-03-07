@@ -138,9 +138,12 @@ if (newTotal > Number(tenant.media_bytes_limit)) {
   });
 }
 
-    const id = randomUUID();
+const id = randomUUID();
 
-    const storagePath = `${tenantId}/${jobId}/${id}`;
+// extract extension from original filename
+const ext = fileName?.split('.').pop()?.toLowerCase() || 'bin';
+
+const storagePath = `${tenantId}/${jobId}/${id}.${ext}`;
 
     await pool.query(
       `
