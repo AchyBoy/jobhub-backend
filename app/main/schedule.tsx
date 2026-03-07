@@ -66,6 +66,7 @@ const [showPhaseDropdown, setShowPhaseDropdown] = useState(false);
 const [filterCrewIds, setFilterCrewIds] = useState<string[]>([]);
 const [filterPhases, setFilterPhases] = useState<string[]>([]);
 const [filterStatuses, setFilterStatuses] = useState<string[]>([]);
+const [hideCompleted, setHideCompleted] = useState(false);
 const [filterJobId, setFilterJobId] = useState<string | null>(null);
 const [filterStartDate, setFilterStartDate] = useState<Date | null>(null);
 const [filterEndDate, setFilterEndDate] = useState<Date | null>(null);
@@ -109,6 +110,9 @@ if (
   filterStatuses.length > 0 &&
   !filterStatuses.includes(task.status)
 ) return false;
+
+if (hideCompleted && task.status === 'complete') return false;
+
     if (filterJobId && task.job_id !== filterJobId) return false;
 
     return true;
@@ -278,33 +282,43 @@ await Linking.openURL(url);
     if (taskId.startsWith('temp-')) return;
     console.log("UPDATE STATUS CALLED WITH ID =", taskId);
   const task = scheduledTasks.find(t => t.id === taskId);
+  if (task?.task_type === 'service' && taskId.startsWith('service-')) return;
 
   // 🚫 Do not allow backend updates for synthetic service tasks
-  if (!task || task.task_type === 'service' && !task.scheduled_at) {
-    return;
-  }
+if (!task) {
+  return;
+}
   // 1️⃣ Immediate local update
-  const updated = scheduledTasks.map(task =>
-    task.id === taskId
-      ? {
-          ...task,
-          status: newStatus,
-          completed_at: newStatus === 'complete' ? new Date().toISOString() : null,
-        }
-      : task
-  );
+const updated = scheduledTasks.map(task =>
+  task.id === taskId
+    ? {
+        ...task,
+        status: newStatus,
+        scheduled_at:
+          newStatus === 'complete' && !task.scheduled_at
+            ? new Date().toISOString()
+            : task.scheduled_at,
+        completed_at:
+          newStatus === 'complete'
+            ? new Date().toISOString()
+            : null,
+      }
+    : task
+);
 
   setScheduledTasks(updated);
   await AsyncStorage.setItem('scheduled_tasks_v1', JSON.stringify(updated));
 
   // 2️⃣ Attempt backend
   try {
-    await apiFetch(`/api/scheduled-tasks/${taskId}`, {
+    if (!taskId.startsWith('service-')) {
+  await apiFetch(`/api/scheduled-tasks/${taskId}`, {
       method: 'PATCH',
       body: JSON.stringify({
         status: newStatus,
       }),
     });
+  }
   } catch {
     await enqueueSync({
       id: makeId(),
@@ -658,7 +672,7 @@ try {
 }
 
   async function loadScheduledTasks() {
-      await AsyncStorage.removeItem('scheduled_tasks_v1');
+      
     // 1️⃣ Local first
     const local = await AsyncStorage.getItem('scheduled_tasks_v1');
     if (local) {
@@ -855,7 +869,10 @@ ref={scrollRef}
   <Text>
 {filterCrewIds.length === 0
   ? 'All Crews'
-  : `${filterCrewIds.length} selected`}
+  : sortedCrews
+      .filter(c => filterCrewIds.includes(c.id))
+      .map(c => c.name)
+      .join(', ')}
   </Text>
 </Pressable>
 
@@ -916,11 +933,11 @@ onPress={() => {
     backgroundColor: '#fff',
   }}
 >
-  <Text>
-    {filterPhases.length === 0
+<Text>
+{filterPhases.length === 0
   ? 'All Phases'
-  : `${filterPhases.length} selected`}
-  </Text>
+  : filterPhases.join(', ')}
+</Text>
 </Pressable>
 
 {showFilterPhaseDropdown && (
@@ -933,6 +950,9 @@ onPress={() => {
       backgroundColor: '#fff',
     }}
   >
+
+
+
     <Pressable
       onPress={() => {
         setFilterPhases([]);
@@ -956,7 +976,10 @@ onPress={() => {
         }}
         style={{ padding: 10 }}
       >
-        <Text>{p}</Text>
+        <Text>
+{filterPhases.includes(p) ? '✓ ' : ''}
+{p}
+</Text>
       </Pressable>
     ))}
   </View>
@@ -982,9 +1005,11 @@ onPress={() => {
   }}
 >
   <Text>
-    {filterStatuses.length === 0
-  ? 'All Statuses'
-  : `${filterStatuses.length} selected`}
+{filterStatuses.length === 0
+  ? hideCompleted
+    ? 'All Statuses • Hide Completed'
+    : 'All Statuses'
+  : `${filterStatuses.join(', ')}${hideCompleted ? ' • Hide Completed' : ''}`}
   </Text>
 </Pressable>
 
@@ -998,9 +1023,11 @@ onPress={() => {
       backgroundColor: '#fff',
     }}
   >
+
     <Pressable
       onPress={() => {
         setFilterStatuses([]);
+        setHideCompleted(false);
         setShowFilterStatusDropdown(false);
       }}
       style={{ padding: 10 }}
@@ -1008,22 +1035,36 @@ onPress={() => {
       <Text>All Statuses</Text>
     </Pressable>
 
-    {['scheduled', 'complete'].map(s => (
+    {['scheduled', 'unscheduled', 'complete'].map(s => (
       <Pressable
         key={s}
         onPress={() => {
           setFilterStatuses(prev =>
-  prev.includes(s)
-    ? prev.filter(st => st !== s)
-    : [...prev, s]
-);
-          
+            prev.includes(s)
+              ? prev.filter(st => st !== s)
+              : [...prev, s]
+          );
         }}
         style={{ padding: 10 }}
       >
-        <Text>{s}</Text>
+        <Text>
+          {filterStatuses.includes(s) ? '✓ ' : ''}
+          {s}
+        </Text>
       </Pressable>
     ))}
+
+    {/* Hide Completed behaves like another status filter */}
+    <Pressable
+      onPress={() => setHideCompleted(prev => !prev)}
+      style={{ padding: 10 }}
+    >
+      <Text>
+        {hideCompleted ? '✓ ' : ''}
+        Hide Completed
+      </Text>
+    </Pressable>
+
   </View>
 )}
 
@@ -1347,7 +1388,7 @@ onPress={async () => {
         method: 'POST',
         body: JSON.stringify({
           serviceCaseId: pendingRescheduleTask.service_case_id,
-          crewId: newTaskCrewId || crews[0]?.id,
+          crewId: newTaskCrewId || null,
           scheduledAt: newIso,
         }),
       });
@@ -1484,11 +1525,7 @@ const merged = [...withoutSynthetic, normalized];
   placeholder="Search job..."
   value={jobSearch}
   onChangeText={setJobSearch}
-  onFocus={() => {
-  setTimeout(() => {
-    scrollRef.current?.scrollToEnd({ animated: true });
-  }, 250);
-}}
+
   style={{
     borderWidth: 1,
     borderColor: '#ddd',
@@ -1664,7 +1701,10 @@ setShowPhaseGroupModal(true);
       }}
       style={{ paddingVertical: 4 }}
     >
-      <Text>{c.name}</Text>
+      <Text>
+{filterCrewIds.includes(c.id) ? '✓ ' : ''}
+{c.name}
+</Text>
     </Pressable>
   ))}
 
@@ -1782,9 +1822,9 @@ onLongPress={() => {
   </View>
 )}
 
-        <Text style={styles.meta}>
-          {task.crew_name}
-        </Text>
+<Text style={styles.meta}>
+  {task.crew_name ?? 'No Crew Assigned'}
+</Text>
 
         <Text style={styles.meta}>
           {task.phase}
@@ -2113,9 +2153,9 @@ router.push({
           {task.job_name ?? task.job_id}
         </Text>
 
-        <Text style={styles.meta}>
-          Crew: {task.crew_name ?? task.crew_id ?? '—'}
-        </Text>
+<Text style={styles.meta}>
+  Crew: {task.crew_name ?? 'No Crew Assigned'}
+</Text>
 
         <Text style={styles.meta}>
           Phase: {task.phase ?? '—'}

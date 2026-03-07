@@ -7,7 +7,7 @@ ScrollView,
 Pressable,
 TextInput
 } from 'react-native'
-
+import { KeyboardAvoidingView, Platform } from 'react-native'
 import { useEffect,useState } from 'react'
 import { apiFetch } from '../../src/lib/apiClient'
 import AsyncStorage from '@react-native-async-storage/async-storage'
@@ -110,9 +110,17 @@ loadTemplateNotes()
 
 return(
 
+<KeyboardAvoidingView
+style={{flex:1}}
+behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+keyboardVerticalOffset={90}
+>
+
 <ScrollView
 style={styles.container}
-contentContainerStyle={{paddingBottom:40}}
+keyboardShouldPersistTaps="handled"
+keyboardDismissMode="interactive"
+contentContainerStyle={{paddingBottom:120}}
 >
 
 <Text style={styles.title}>Automation Rules</Text>
@@ -273,23 +281,26 @@ Create Automation
 Existing Automations
 </Text>
 
-{automations.map(a=>(
-<View key={a.id} style={styles.ruleCard}>
+{automations.map(a => (
+  <View key={a.id} style={styles.ruleCard}>
 
-<Text style={styles.ruleLabel}>Trigger</Text>
-<Text>When "{a.trigger_note}" becomes incomplete</Text>
+    <Text style={styles.ruleSentence}>
+      When "{a.trigger_note}"
+    </Text>
 
-<Text style={styles.ruleLabel}>Action</Text>
-<Text>Schedule "{a.action_phase}"</Text>
+    <Text style={styles.ruleAction}>
+      → Schedule "{a.action_phase}"
+    </Text>
 
-<Text style={styles.ruleLabel}>Offset</Text>
-<Text>{a.schedule_offset}</Text>
+    <Text style={styles.ruleOffset}>
+      → {a.schedule_offset.replaceAll('_',' ')}
+    </Text>
 
-</View>
+  </View>
 ))}
 
 </ScrollView>
-
+</KeyboardAvoidingView>
 )
 }
 
@@ -458,6 +469,21 @@ backgroundColor:'#f8fafc',
 padding:16,
 borderRadius:14,
 marginBottom:12
+},
+ruleSentence:{
+fontWeight:'600',
+marginBottom:4
+},
+
+ruleAction:{
+marginLeft:6,
+opacity:0.85
+},
+
+ruleOffset:{
+marginLeft:6,
+fontSize:12,
+opacity:0.65
 },
 
 ruleLabel:{

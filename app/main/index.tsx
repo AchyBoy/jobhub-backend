@@ -1,10 +1,19 @@
 // JobHub/app/main/index.tsx
-import { View, Text, StyleSheet, Pressable, TextInput } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  TextInput,
+  Keyboard,
+  TouchableWithoutFeedback,
+} from 'react-native';
 import { useEffect, useState } from 'react';
 import * as Location from 'expo-location';
 import { apiFetch } from '../../src/lib/apiClient';
 import { supabase } from '../../src/lib/supabase';
 import { useRouter } from 'expo-router';
+import { ScrollView } from 'react-native';
 
 export default function MainHome() {
   const router = useRouter();
@@ -109,7 +118,8 @@ console.log("📦 Jobs returned:", jobs);
   }
 
   return (
-  <View style={styles.container}>
+<TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+<View style={styles.container}>
 
     {/* SEARCH BAR */}
     <TextInput
@@ -122,7 +132,10 @@ console.log("📦 Jobs returned:", jobs);
 
     {/* SEARCH RESULTS */}
     {searchQuery.trim().length > 0 && (
-      <View style={styles.searchResults}>
+      <ScrollView
+  style={styles.searchResults}
+  keyboardShouldPersistTaps="handled"
+>
         {filteredJobs.length === 0 ? (
           <Text style={styles.emptyText}>No matches</Text>
         ) : (
@@ -141,7 +154,9 @@ console.log("📦 Jobs returned:", jobs);
             </Pressable>
           ))
         )}
-      </View>
+        
+      </ScrollView>
+      
     )}
 
     {/* NEARBY SECTION */}
@@ -170,6 +185,9 @@ console.log("📦 Jobs returned:", jobs);
     )}
 
   </View>
+  
+  </TouchableWithoutFeedback>
+
 );
 }
 

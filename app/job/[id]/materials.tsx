@@ -1011,6 +1011,58 @@ function createFormData(args: {
   return form;
 }
 
+async function markOrderedManually(material: any) {
+
+  const now = new Date().toISOString();
+  const manualOrderId = `manual-${makeId()}`;
+
+  const updated = materials.map(m =>
+    m.id === material.id
+      ? {
+          ...m,
+          qty_ordered: m.qty_needed ?? 0,
+          date_ordered: now,
+          order_id: manualOrderId,
+        }
+      : m
+  );
+
+  setMaterials(updated);
+
+  await AsyncStorage.setItem(
+    `job:${jobId}:materials`,
+    JSON.stringify(updated)
+  );
+
+  try {
+    await apiFetch(`/api/materials/${material.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        qtyOrdered: material.qty_needed ?? 0,
+        dateOrdered: now,
+        orderId: manualOrderId,
+      }),
+    });
+  } catch {
+    await enqueueSync({
+      id: makeId(),
+      type: 'material_update',
+      coalesceKey: `material_update:${material.id}`,
+      createdAt: nowIso(),
+      payload: {
+        materialId: material.id,
+        updates: {
+          qtyOrdered: material.qty_needed ?? 0,
+          dateOrdered: now,
+          orderId: manualOrderId,
+        },
+      },
+    });
+  }
+
+  flushSyncQueue();
+}
+
 async function handleCreateOrder() {
   if (!newPhase || (!newSupplierId && !newVendorId)) {
     alert('Select phase and a Supplier OR Vendor first');
@@ -1495,7 +1547,9 @@ return (
   ref={scrollRef}
   nestedScrollEnabled
   keyboardShouldPersistTaps="handled"
-  contentContainerStyle={{ paddingBottom: editMode ? 140 : 60 }}
+  contentContainerStyle={{
+    paddingBottom: addMode ? 240 : editMode ? 140 : 60
+  }}
   showsVerticalScrollIndicator={false}
   onScroll={(e) => {
     scrollYRef.current = e.nativeEvent.contentOffset.y;
@@ -2054,9 +2108,15 @@ style={[
 
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
-    <Text style={{ color: '#15803d', fontWeight: '700' }}>
-      ✓ Ordered
-    </Text>
+<Text style={{ color: '#15803d', fontWeight: '700' }}>
+  ✓ Ordered
+</Text>
+
+{material.order_id?.startsWith('manual-') && (
+  <Text style={{ fontSize: 12, opacity: 0.6 }}>
+    Ordered manually
+  </Text>
+)}
 
     {material.date_ordered && (
       <Text style={{ fontSize: 12, opacity: 0.6 }}>
@@ -2064,7 +2124,7 @@ style={[
       </Text>
     )}
 
-{material.order_id && (
+{material.order_id && !material.order_id.startsWith('manual-') && (
   <>
     <Pressable
       onPress={async () => {
@@ -2137,6 +2197,17 @@ style={[
 <Text style={styles.meta}>
   Qty: {material.qty_needed ?? 0}
 </Text>
+
+{!isPhaseOrdered(material) && (
+  <Pressable
+    onPress={() => markOrderedManually(material)}
+    style={{ marginTop: 6 }}
+  >
+    <Text style={{ color: '#2563eb', fontWeight: '600' }}>
+      Mark Ordered Manually
+    </Text>
+  </Pressable>
+)}
   <Text style={{ fontSize: 11, opacity: 0.45, marginTop: 4 }}>
   {role === 'owner' || role === 'admin'
   ? 'Double tap to collapse section – Hold to delete'
@@ -2355,9 +2426,15 @@ onPressOut={() => {
 
 {isStorageOrdered(material) && (
   <View style={{ marginTop: 4 }}>
-    <Text style={{ color: '#15803d', fontWeight: '700' }}>
-      ✓ Ordered
-    </Text>
+<Text style={{ color: '#15803d', fontWeight: '700' }}>
+  ✓ Ordered
+</Text>
+
+{material.order_id?.startsWith('manual-') && (
+  <Text style={{ fontSize: 12, opacity: 0.6 }}>
+    Ordered manually
+  </Text>
+)}
 
     {material.date_storage_ordered && (
       <Text style={{ fontSize: 12, opacity: 0.6 }}>
@@ -2533,9 +2610,15 @@ style={[
 
 {isPhaseOrdered(material) && (
   <View style={{ marginTop: 4 }}>
-    <Text style={{ color: '#15803d', fontWeight: '700' }}>
-      ✓ Ordered
-    </Text>
+<Text style={{ color: '#15803d', fontWeight: '700' }}>
+  ✓ Ordered
+</Text>
+
+{material.order_id?.startsWith('manual-') && (
+  <Text style={{ fontSize: 12, opacity: 0.6 }}>
+    Ordered manually
+  </Text>
+)}
 
     {material.date_ordered && (
       <Text style={{ fontSize: 12, opacity: 0.6 }}>
@@ -2543,7 +2626,7 @@ style={[
       </Text>
     )}
 
-{material.order_id && (
+{material.order_id && !material.order_id.startsWith('manual-') && (
   <>
     <Pressable
       onPress={async () => {
@@ -2667,12 +2750,51 @@ style={[
           {isExpanded && (
             <View style={{ marginTop: 10 }}>
               {vendorMaterials.map((material: any) => (
-                <View key={material.id} style={styles.card}>
+                <View
+  key={material.id}
+  style={[
+    styles.card,
+    isPhaseOrdered(material) && {
+      backgroundColor: '#dcfce7',
+    },
+  ]}
+>
                   <Text style={styles.itemTitle}>{material.item_name}</Text>
+
+{isPhaseOrdered(material) && (
+  <View style={{ marginTop: 4 }}>
+    <Text style={{ color: '#15803d', fontWeight: '700' }}>
+      ✓ Ordered
+    </Text>
+
+    {material.order_id?.startsWith('manual-') && (
+      <Text style={{ fontSize: 12, opacity: 0.6 }}>
+        Ordered manually
+      </Text>
+    )}
+
+    {material.date_ordered && (
+      <Text style={{ fontSize: 12, opacity: 0.6 }}>
+        {new Date(material.date_ordered).toLocaleDateString()}
+      </Text>
+    )}
+  </View>
+)}
 
                   <Text style={styles.meta}>
                     Needed: {material.qty_needed ?? 0}
                   </Text>
+
+                  {!isPhaseOrdered(material) && (
+  <Pressable
+    onPress={() => markOrderedManually(material)}
+    style={{ marginTop: 6 }}
+  >
+    <Text style={{ color: '#2563eb', fontWeight: '600' }}>
+      Mark Ordered Manually
+    </Text>
+  </Pressable>
+)}
 
                   <Text style={styles.meta}>
                     Ordered: {material.qty_ordered ?? 0}

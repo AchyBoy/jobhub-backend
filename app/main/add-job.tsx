@@ -1,6 +1,15 @@
 //JobHub/app/main/add-job.tsx
 
-import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
+import {
+  View,
+  Text,
+  TextInput,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from 'react-native';
 import { useState, useEffect } from 'react';
 import * as Location from 'expo-location';
 import { router, useLocalSearchParams } from 'expo-router';
@@ -129,9 +138,16 @@ await apiFetch(`/api/job/${jobId}/meta`, {
   }
 }
 
-  return (
-    <SafeAreaView style={styles.safe}>
-<View style={styles.container}>
+return (
+<SafeAreaView style={styles.safe}>
+  <KeyboardAvoidingView
+    style={{ flex: 1 }}
+    behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+  >
+    <ScrollView
+      contentContainerStyle={styles.container}
+      keyboardShouldPersistTaps="handled"
+    >
   <Text style={styles.title}>Add Job</Text>
 
         <TextInput
@@ -204,7 +220,8 @@ await apiFetch(`/api/job/${jobId}/meta`, {
     {isSaving ? `Loading${loadingDots}` : 'Save Job'}
   </Text>
 </Pressable>
-      </View>
+          </ScrollView>
+  </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

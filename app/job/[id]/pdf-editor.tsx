@@ -13,6 +13,7 @@ import Pdf from "react-native-pdf";
 import Svg, { Path, Circle } from "react-native-svg";
 import { AppState } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
+import { Platform } from "react-native";
 import { usePreventRemove } from "@react-navigation/native";
 import { GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -145,8 +146,11 @@ export default function PdfEditor() {
   const navigation = useNavigation();
 const [pageCount, setPageCount] = useState(1);
 const [page, setPage] = useState(1);
-  const { width, height } = Dimensions.get("window");
-  const [renderHeight, setRenderHeight] = useState(width * 1.8);
+const { width, height } = Dimensions.get("window");
+
+const [renderHeight, setRenderHeight] = useState(width * 1.8);
+
+const verticalCenter = 0;
 
   const [loading, setLoading] = useState(true);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -161,12 +165,6 @@ const [page, setPage] = useState(1);
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [showOverlay, setShowOverlay] = useState(true);
   const strokesRef = useRef<Stroke[]>([]);
-  const loadingOverlayRef = useRef(true);
-  // Upload throttling
-const uploadTimerRef = useRef<any>(null);
-const lastUploadRef = useRef(0);
-
-const UPLOAD_INTERVAL = 6000; // 6 seconds
   useEffect(() => {
     strokesRef.current = strokes;
   }, [strokes]);
@@ -214,12 +212,15 @@ const [dragStart, setDragStart] = useState<Point | null>(null);
 const focalY = useSharedValue(0);
 
   const MIN_SCALE = 1;
-  const MAX_SCALE = 5;
+  const isTablet = Math.min(width, height) >= 768;
 
-  useEffect(() => {
+const MAX_SCALE = isTablet ? 3 : 12;
+
+useEffect(() => {
+  baseScale.value = 1;
   panX.value = 0;
   panY.value = 0;
-}, []);
+}, [page]);
 
 const animatedStyle = useAnimatedStyle(() => {
   return {
@@ -242,7 +243,6 @@ function toDocNormalized(lx: number, ly: number): Point {
 
   // === Persistence ===
 async function saveOverlay(next?: Stroke[]) {
-  if (loadingOverlayRef.current) return;
   const path = overlayPathRef.current;
   if (!path) return;
 
@@ -259,55 +259,19 @@ await FileSystem.writeAsStringAsync(
   json,
   { encoding: "utf8" }
 );
-// ☁️ debounced upload
-const now = Date.now();
 
-if (now - lastUploadRef.current > UPLOAD_INTERVAL) {
-  lastUploadRef.current = now;
+// ☁️ upload to server
+try {
+  dbg("☁️ uploading overlay");
 
-  try {
-    dbg("☁️ uploading overlay");
+await apiFetch(`/api/job-overlays/${id}`, {
+  method: "PUT",
+  body: JSON.stringify(payload),
+});
 
-    await apiFetch(`/api/job-overlays/${id}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    dbg("☁️ overlay uploaded");
-  } catch (e) {
-    console.warn("overlay upload failed", e);
-  }
-
-} else {
-
-  if (uploadTimerRef.current) {
-    clearTimeout(uploadTimerRef.current);
-  }
-
-  uploadTimerRef.current = setTimeout(async () => {
-    try {
-      dbg("☁️ delayed overlay upload");
-
-      await apiFetch(`/api/job-overlays/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(payload),
-        headers: {
-          "Content-Type": "application/json",
-        },
-      });
-
-      lastUploadRef.current = Date.now();
-
-      dbg("☁️ overlay uploaded (delayed)");
-
-    } catch (e) {
-      console.warn("overlay upload failed", e);
-    }
-  }, UPLOAD_INTERVAL);
-
+  dbg("☁️ overlay uploaded");
+} catch (e) {
+  console.warn("overlay upload failed", e);
 }
 
   dbg("💾 overlay saved", {
@@ -348,8 +312,6 @@ setActiveLayerByPage(loadedActiveLayerByPage);
 setStrokes(loadedStrokes);
 strokesRef.current = loadedStrokes;
 
-loadingOverlayRef.current = false;
-
 dbg("📥 overlay loaded", {
   strokes: loadedStrokes.length,
   pagesWithLayers: Object.keys(loadedLayersByPage).length
@@ -365,18 +327,10 @@ setActiveLayerByPage({});
 }
 
 useEffect(() => {
-  return () => {
-    if (uploadTimerRef.current) {
-      clearTimeout(uploadTimerRef.current);
-    }
-  };
-}, []);
-
-useEffect(() => {
   livePointsRef.current = [];
   setLivePoints([]);
 
-  if (loading || loadingOverlayRef.current) return;
+  if (loading) return;
 
   const pageLayers = layersByPage[page] ?? [];
   if (pageLayers.length > 0) return;
@@ -507,22 +461,19 @@ const scaledHeight = renderHeight * scale;
 // ... inside onUpdate
 // 1. Calculate how much the content exceeds the screen dimensions
 const overflowX = Math.max(0, (width * scale) - width);
-const overflowY = Math.max(0, ((renderHeight + 300) * scale) - height);
+const overflowY = Math.max(0, (renderHeight * scale) - height);
 
 const nextX = startPanX.value + e.translationX;
 const nextY = startPanY.value + e.translationY;
 
-// 2. Horizontal limits (Centered)
 const limitX = overflowX / 2 + PAN_MARGIN_X;
 panX.value = Math.max(-limitX, Math.min(limitX, nextX));
 
-// 3. Vertical limits
-// Since RN scales from the center, the "Top" of the view moves up 
-// by (overflowY / 2). We allow panning by that amount plus your margin.
-const limitY = (overflowY / 2) + PAN_MARGIN_TOP;
+// FIX: account for vertical centering
+const limitTop = (overflowY / 2) + PAN_MARGIN_TOP;
+const limitBottom = (overflowY / 2) + PAN_MARGIN_BOTTOM;
 
-// We use -limitY and +limitY because the origin (0,0) is the screen center
-panY.value = Math.max(-limitY, Math.min(limitY, nextY));
+panY.value = Math.max(-limitTop, Math.min(limitBottom, nextY));
 });
 
 const pinchGesture = Gesture.Pinch()
@@ -534,7 +485,7 @@ const pinchGesture = Gesture.Pinch()
     focalY.value = e.focalY;
   })
   .onUpdate((e) => {
-    const prevScale = baseScale.value;
+    const prevScale = Math.max(1, baseScale.value);
 
     const nextScale = Math.max(
       MIN_SCALE,
@@ -1188,28 +1139,46 @@ const stroke: Stroke = {
 </View>
 )}
         <GestureDetector gesture={composed}>
-          <Animated.View style={[{ width, height: renderHeight + 300 }, animatedStyle]}>
+          <Animated.View style={[{ width, height: renderHeight }, animatedStyle]}>
             {/* PDF (immutable) */}
-            <Pdf
-onLoadComplete={(pages, filePath, size) => {
+<Pdf
+onLoadComplete={(pages, filePath, { width: pdfW, height: pdfH }) => {
   setPageCount(pages);
 
-  if (size?.width && size?.height) {
-    const ratio = size.height / size.width;
-    const next = width * ratio;
-    if (Math.abs(next - renderHeight) > 1) setRenderHeight(next);
-  }
+  // keep PDF width = screen width
+  const scale = width / pdfW;
+
+  const nextHeight = pdfH * scale;
+
+setRenderHeight(nextHeight);
+
+// reset view system after PDF size is known
+baseScale.value = 1;
+panX.value = 0;
+panY.value = 0;
 }}
-            page={page}
-              source={{ uri: basePdfPathRef.current! }}
-                style={{ width, height: renderHeight, top: 100, position: "absolute" }}
-              enablePaging={false}
-              enableDoubleTapZoom={false}
-              scrollEnabled={false}
-              scale={1}
-              minScale={1}
-              maxScale={1}
-            />
+  page={page}
+  singlePage={true}
+  source={{ uri: basePdfPathRef.current! }}
+style={{
+  width,
+  height: renderHeight,
+  top: 0,
+  position: "absolute"
+}}
+  enablePaging={false}
+  enableDoubleTapZoom={false}
+  scrollEnabled={false}
+  scale={1}
+  minScale={1}
+  maxScale={1}
+    enableAntialiasing={true}
+  enableAnnotationRendering={false}
+
+
+  enableRTL={false}
+  fitPolicy={2}
+/>
 
             {/* OVERLAY (same transform container as PDF) */}
             {showOverlay && (
@@ -1220,7 +1189,7 @@ onLoadComplete={(pages, filePath, size) => {
               preserveAspectRatio="none"
 style={{
   position: "absolute",
-  top: 100,
+  top: 0,
   left: 0,
 }}
               pointerEvents="none"
