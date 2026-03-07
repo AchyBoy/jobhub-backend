@@ -52,8 +52,7 @@ console.log("🚨 MEDIA ROUTE SIGNING START", result.rows.length);
 const signedMedia = await Promise.all(
   result.rows.map(async (m: any) => {
 
-const extension = m.file_name?.split('.').pop();
-const fullPath = `${m.storage_path}.${extension}`;
+const fullPath = m.storage_path;
 
 const { data, error } = await supabaseAdmin
   .storage
