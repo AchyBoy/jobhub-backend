@@ -251,6 +251,34 @@ router.delete("/:id", async (req: any, res) => {
     const tenantId = req.user?.tenantId;
     const { id } = req.params;
 
+    // get storage path first
+    const mediaRes = await pool.query(
+      `
+      SELECT storage_path
+      FROM job_media
+      WHERE id = $1
+      AND tenant_id = $2
+      `,
+      [id, tenantId]
+    );
+
+    const media = mediaRes.rows[0];
+
+    // delete file from Supabase storage
+    if (media?.storage_path) {
+
+      const { error } = await supabaseAdmin
+        .storage
+        .from("job-media")
+        .remove([media.storage_path]);
+
+      if (error) {
+        console.log("⚠️ storage delete error", error.message);
+      }
+
+    }
+
+    // delete database row
     await pool.query(
       `
       DELETE FROM job_media
