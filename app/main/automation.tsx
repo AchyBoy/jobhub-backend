@@ -117,9 +117,17 @@ contentContainerStyle={{paddingBottom:40}}
 
 <Text style={styles.title}>Automation Rules</Text>
 
+<Text style={styles.subtitle}>
+Automations trigger from notes defined in templates. When that note becomes
+incomplete on a job, the automation will run.
+</Text>
+
 <View style={styles.card}>
 
-<Text style={styles.label}>Trigger Note</Text>
+<Text style={styles.label}>Trigger Note (from template)</Text>
+<Text style={styles.helper}>
+Search template notes. Only template notes can trigger automations.
+</Text>
 
 <View style={styles.searchWrap}>
   <TextInput
@@ -431,6 +439,18 @@ createText:{
 color:'#fff',
 fontWeight:'700',
 textAlign:'center'
+},
+subtitle:{
+fontSize:13,
+opacity:0.7,
+marginBottom:16,
+lineHeight:18
+},
+
+helper:{
+fontSize:12,
+opacity:0.6,
+marginTop:2
 },
 
 ruleCard:{
