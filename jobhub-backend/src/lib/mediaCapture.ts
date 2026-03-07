@@ -1,31 +1,26 @@
-// JobHub/src/lib/mediaCapture.ts
+//JobHub/jobhub-backend/src/lib/mediaCapture.ts
 import * as ImagePicker from 'expo-image-picker';
 import { enqueueSync, makeId, nowIso } from './syncEngine';
 import { apiFetch } from './apiClient';
 
 export async function capturePhoto(jobId: string) {
-  console.log('📸 capturePhoto start', { jobId });
 
   const permission = await ImagePicker.requestCameraPermissionsAsync();
-console.log('📸 camera permission result', permission);
+
   if (!permission.granted) {
     throw new Error('Camera permission denied');
   }
-console.log('📸 launching camera');
+
   const result = await ImagePicker.launchCameraAsync({
     mediaTypes: ImagePicker.MediaTypeOptions.Images,
     quality: 0.8,
   });
 
-  if (result.canceled) {
-  console.log('📸 capture canceled');
-  return;
-}
+  if (result.canceled) return;
 
   const asset = result.assets[0];
-  console.log('📸 captured asset', asset);
 
-  return await queueMedia(jobId, asset.uri, 'image/jpeg');
+  await queueMedia(jobId, asset.uri, 'image/jpeg');
 }
 
 export async function recordVideo(jobId: string) {
@@ -45,7 +40,7 @@ export async function recordVideo(jobId: string) {
 
   const asset = result.assets[0];
 
-  return await queueMedia(jobId, asset.uri, 'video/mp4');
+  await queueMedia(jobId, asset.uri, 'video/mp4');
 }
 
 export async function importFromLibrary(jobId: string) {
@@ -69,7 +64,7 @@ export async function importFromLibrary(jobId: string) {
     ? 'video/mp4'
     : 'image/jpeg';
 
-  return await queueMedia(jobId, asset.uri, mimeType);
+  await queueMedia(jobId, asset.uri, mimeType);
 }
 
 async function queueMedia(
@@ -108,19 +103,4 @@ async function queueMedia(
       sizeBytes,
     },
   });
-
-console.log('📦 queueMedia return', {
-  mediaId,
-  storagePath,
-  mimeType,
-  localUri: uri,
-});
-
-return {
-  mediaId,
-  storagePath,
-  mimeType,
-  localUri: uri,
-};
-
 }

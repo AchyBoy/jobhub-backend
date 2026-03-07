@@ -21,8 +21,20 @@ ios: {
     NSLocationWhenInUseUsageDescription:
       "JobHub uses your location while the app is open to show nearby scheduled jobs for convenience. Location is not tracked in the background.",
 
-        NSFaceIDUsageDescription:
-    "Allow JobHub to use Face ID to log you in quickly and securely.",
+    NSFaceIDUsageDescription:
+      "Allow JobHub to use Face ID to log you in quickly and securely.",
+
+    NSCameraUsageDescription:
+      "JobHub needs camera access to capture job photos and videos.",
+
+    NSPhotoLibraryUsageDescription:
+      "JobHub needs access to your photo library to attach media to jobs.",
+
+    NSPhotoLibraryAddUsageDescription:
+      "JobHub saves captured media for job documentation.",
+
+    NSMicrophoneUsageDescription:
+      "JobHub records audio when capturing job videos."
   },
 },
 
@@ -45,6 +57,7 @@ ios: {
 
 plugins: [
   'expo-router',
+  'expo-image-picker',
   [
     'expo-splash-screen',
     {

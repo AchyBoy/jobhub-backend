@@ -3,6 +3,7 @@ import { Router } from "express";
 import { pool } from "../db/postgres";
 import { requireAuthWithTenant } from "../middleware/requireAuthWithTenant";
 import { randomUUID } from "crypto";
+import { supabaseAdmin } from "../lib/supabaseAdmin";
 
 const router = Router();
 
@@ -45,13 +46,46 @@ router.get("/job/:jobId", async (req: any, res) => {
 
     const result = await pool.query(query, params);
 
-    res.json({
-      media: result.rows,
-      nextCursor:
-        result.rows.length === limit
-          ? result.rows[result.rows.length - 1].created_at
-          : null,
-    });
+// create signed URLs for media
+console.log("🚨 MEDIA ROUTE SIGNING START", result.rows.length);
+
+const signedMedia = await Promise.all(
+  result.rows.map(async (m: any) => {
+
+const extension = m.file_name?.split('.').pop();
+const fullPath = `${m.storage_path}.${extension}`;
+
+const { data, error } = await supabaseAdmin
+  .storage
+  .from("job-media")
+  .createSignedUrl(fullPath, 3600);
+
+console.log("🔑 SIGNED URL ATTEMPT", {
+  id: m.id,
+  fileName: m.file_name,
+  storagePath: m.storage_path,
+  fullPath,
+  uploadStatus: m.upload_status,
+  error: error?.message,
+  signedUrl: data?.signedUrl ?? null
+});
+
+return {
+  ...m,
+  signed_url: data?.signedUrl ?? null,
+};
+
+  })
+);
+
+res.json({
+  media: signedMedia,
+  nextCursor:
+    result.rows.length === limit
+      ? result.rows[result.rows.length - 1].created_at
+      : null,
+});
+
   } catch (err) {
     console.error("❌ media fetch error", err);
     res.status(500).json({ error: "Failed to load media" });

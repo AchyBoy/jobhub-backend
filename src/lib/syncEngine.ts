@@ -3,6 +3,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { apiFetch } from './apiClient';
 import { supabase } from './supabase';
+import * as FileSystem from 'expo-file-system/legacy';
+
 
 type SyncItem =
   | {
@@ -606,6 +608,7 @@ if (item.type === 'material_delete') {
 }
 
 if (item.type === 'media_upload') {
+  console.log('📤 processing media upload', item.payload);
   const {
     mediaId,
     storagePath,
@@ -621,23 +624,35 @@ if (item.type === 'media_upload') {
     sizeBytes: number;
   };
 
-  const response = await fetch(localUri);
-  const blob = await response.blob();
+  
 
-  const uploadRes = await supabase.storage
-    .from('job-media')
-    .upload(storagePath, blob, {
-      contentType: mimeType,
-      upsert: false,
-    });
+const file = await FileSystem.readAsStringAsync(localUri, {
+  encoding: 'base64',
+});
 
-  if (uploadRes.error) {
-    throw uploadRes.error;
-  }
+console.log('📦 file read length', file.length);
 
-  await apiFetch(`/api/media/complete/${mediaId}`, {
-    method: 'POST',
+const bytes = Uint8Array.from(atob(file), c => c.charCodeAt(0)).buffer;
+
+console.log('☁️ uploading to supabase', storagePath);
+
+const uploadRes = await supabase.storage
+  .from('job-media')
+  .upload(storagePath, bytes, {
+    contentType: mimeType,
+    upsert: false,
   });
+
+if (uploadRes.error) {
+  console.log('❌ upload error', uploadRes.error);
+  throw uploadRes.error;
+}
+
+console.log('✅ upload complete, notifying backend', mediaId);
+
+await apiFetch(`/api/media/complete/${mediaId}`, {
+  method: 'POST',
+});
 }
 
 if (item.type === 'order_create') {
@@ -683,6 +698,7 @@ if (item.type === 'order_create') {
 }
 
 export function startSyncLoop(intervalMs: number = 8000) {
+  
   if (started) return;
   started = true;
 
@@ -690,9 +706,11 @@ export function startSyncLoop(intervalMs: number = 8000) {
     flushSyncQueue().catch(() => {});
   }, intervalMs);
 
+  
   // also attempt one immediately
   flushSyncQueue().catch(() => {});
 }
+
 
 export function stopSyncLoop() {
   if (timer) clearInterval(timer);
