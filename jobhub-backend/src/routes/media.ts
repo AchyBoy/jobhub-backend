@@ -224,9 +224,16 @@ if (media?.storage_path) {
 
     const file = data.find((f: any) => f.name === fileName);
 
-    if (file?.metadata?.size) {
-      realSize = Number(file.metadata.size);
-    }
+if (file?.metadata?.size) {
+
+  realSize = Number(file.metadata.size);
+
+  console.log("📦 VERIFIED FILE SIZE", {
+    storagePath: media.storage_path,
+    realSize
+  });
+
+}
 
   }
 
