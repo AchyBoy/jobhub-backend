@@ -47,35 +47,21 @@ router.get("/job/:jobId", async (req: any, res) => {
     const result = await pool.query(query, params);
 
 // create signed URLs for media
-console.log("🚨 MEDIA ROUTE SIGNING START", result.rows.length);
+// build direct storage URLs instead of signing (much faster)
+console.log("🚨 MEDIA ROUTE BUILDING PUBLIC URLS", result.rows.length);
 
-const signedMedia = await Promise.all(
-  result.rows.map(async (m: any) => {
+const baseUrl = `${process.env.SUPABASE_URL}/storage/v1/object/public/job-media/`;
 
-const fullPath = m.storage_path;
+const signedMedia = result.rows.map((m: any) => {
 
-const { data, error } = await supabaseAdmin
-  .storage
-  .from("job-media")
-  .createSignedUrl(fullPath, 3600);
+  const publicUrl = `${baseUrl}${m.storage_path}`;
 
-console.log("🔑 SIGNED URL ATTEMPT", {
-  id: m.id,
-  fileName: m.file_name,
-  storagePath: m.storage_path,
-  fullPath,
-  uploadStatus: m.upload_status,
-  error: error?.message,
-  signedUrl: data?.signedUrl ?? null
+  return {
+    ...m,
+    signed_url: publicUrl
+  };
+
 });
-
-return {
-  ...m,
-  signed_url: data?.signedUrl ?? null,
-};
-
-  })
-);
 
 res.json({
   media: signedMedia,

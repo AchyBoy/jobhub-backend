@@ -278,6 +278,24 @@ const isVideo =
   item.mimeType?.startsWith('video') ||
   item.storagePath?.includes('.upload');
 
+const branch =
+  item.localUri
+    ? 'LOCAL'
+    : item.signedUrl
+    ? 'SIGNED_URL'
+    : 'PLACEHOLDER';
+
+console.log('🎬 MEDIA RENDER DECISION', {
+  id: item.id,
+  mimeType: item.mimeType,
+  storagePath: item.storagePath,
+  uploadStatus: item.uploadStatus,
+  signedUrl: item.signedUrl,
+  localUri: item.localUri,
+  isVideo,
+  branch
+});
+
 console.log('🎬 media type check', {
   id: item.id,
   mimeType: item.mimeType,
@@ -292,38 +310,62 @@ console.log('🎬 media type check', {
 >
 
 {item.localUri ? (
+  console.log('🎬 MEDIA BRANCH LOCAL', item.id),
 
   isVideo ? (
-    <Pressable onPress={() => setViewer(item)}>
+    <Pressable
+  onPress={() => {
+    console.log('🎬 VIDEO TILE PRESSED', {
+      id: item.id,
+      uri: item.localUri ?? item.signedUrl
+    });
+    setViewer(item);
+  }}
+>
 <View style={styles.videoTile}>
-  <Text style={styles.videoLabel}>VIDEO</Text>
-  <Text style={styles.playIcon}>▶</Text>
+  <Text style={{ color: '#fff', fontSize: 28 }}>▶</Text>
 </View>
+
     </Pressable>
   ) : (
-    <Image
-      source={{ uri: item.localUri }}
-      style={styles.image}
-      resizeMode="cover"
-    />
+<Pressable onPress={() => setViewer(item)}>
+  <Image
+    source={{ uri: item.localUri }}
+    style={styles.image}
+    resizeMode="cover"
+  />
+</Pressable>
   )
 
-) : item.signedUrl !== undefined && item.signedUrl !== null ? (
+) : item.signedUrl ? (
+  console.log('🎬 MEDIA BRANCH SIGNED', item.id),
 
   isVideo ? (
     
-    <Pressable onPress={() => setViewer(item)}>
+    <Pressable
+  onPress={() => {
+    console.log('🎬 VIDEO TILE PRESSED', {
+      id: item.id,
+      uri: item.localUri ?? item.signedUrl
+    });
+    setViewer(item);
+  }}
+>
+  
 <View style={styles.videoTile}>
-  <Text style={styles.videoLabel}>VIDEO</Text>
-  <Text style={styles.playIcon}>▶</Text>
+  <Text style={{ color: '#fff', fontSize: 28 }}>▶</Text>
 </View>
+
     </Pressable>
   ) : (
-    <Image
-      source={{ uri: item.signedUrl }}
-      style={styles.image}
-      resizeMode="cover"
-    />
+  console.log('🎬 MEDIA BRANCH PLACEHOLDER', item.id),
+<Pressable onPress={() => setViewer(item)}>
+  <Image
+    source={{ uri: item.signedUrl }}
+    style={styles.image}
+    resizeMode="cover"
+  />
+</Pressable>
   )
 
 ) : (
@@ -352,25 +394,31 @@ console.log('🎬 media type check', {
       {loading ? (
         <ActivityIndicator size="large" />
       ) : (
-        <FlatList
-          data={media}
-          keyExtractor={item => item.id}
-          numColumns={3}
-          renderItem={renderItem}
-          columnWrapperStyle={{ gap: 6 }}
-          contentContainerStyle={{ padding: 6 }}
-          onEndReached={() => {
-            if (cursor && !loadingMore) {
-              loadMedia(false);
-            }
-          }}
-          onEndReachedThreshold={0.6}
-          ListFooterComponent={
-            loadingMore ? (
-              <ActivityIndicator style={{ marginTop: 12 }} />
-            ) : null
-          }
-        />
+<FlatList
+  data={media}
+  keyExtractor={item => item.id}
+  numColumns={3}
+  renderItem={renderItem}
+  columnWrapperStyle={{ gap: 6 }}
+  contentContainerStyle={{ padding: 6 }}
+
+  initialNumToRender={9}
+  maxToRenderPerBatch={9}
+  windowSize={5}
+  removeClippedSubviews
+
+  onEndReached={() => {
+    if (cursor && !loadingMore) {
+      loadMedia(false);
+    }
+  }}
+  onEndReachedThreshold={0.6}
+  ListFooterComponent={
+    loadingMore ? (
+      <ActivityIndicator style={{ marginTop: 12 }} />
+    ) : null
+  }
+/>
       )}
   <Pressable
     style={styles.captureButton}
@@ -379,7 +427,7 @@ console.log('🎬 media type check', {
     <Text style={styles.captureText}>+</Text>
   </Pressable>
 
-  {viewer && (
+{viewer && (
   <View style={styles.viewer}>
     <Pressable
       style={styles.viewerClose}
@@ -388,17 +436,28 @@ console.log('🎬 media type check', {
       <Text style={{ color: '#fff', fontSize: 20 }}>✕</Text>
     </Pressable>
 
-    
+    {viewer.mimeType?.startsWith('video') ? (
 
-<Video
-  source={{
-    uri: viewer.localUri ?? viewer.signedUrl ?? ''
-  }}
-  style={styles.viewerVideo}
-  useNativeControls
-  resizeMode={'contain' as any}
-  shouldPlay
-/>
+      <Video
+        source={{
+          uri: viewer.localUri ?? viewer.signedUrl ?? ''
+        }}
+        style={styles.viewerVideo}
+        useNativeControls
+        resizeMode={'contain' as any}
+        shouldPlay
+      />
+
+    ) : (
+
+      <Image
+        source={{ uri: viewer.localUri ?? viewer.signedUrl ?? '' }}
+        style={styles.viewerVideo}
+        resizeMode="contain"
+      />
+
+    )}
+
   </View>
 )}
 
@@ -451,7 +510,8 @@ captureText: {
   marginTop: -2,
 },
 image: {
-  flex: 1,
+  width: '100%',
+  height: '100%',
   borderRadius: 8,
 },
 
@@ -464,8 +524,9 @@ image: {
     paddingVertical: 2,
     borderRadius: 6,
   },
-  videoTile: {
-  flex: 1,
+videoTile: {
+  width: '100%',
+  height: '100%',
   backgroundColor: '#000',
   borderRadius: 8,
   alignItems: 'center',

@@ -660,10 +660,12 @@ if (uploadRes.error) {
 }
 
 console.log('✅ upload complete, notifying backend', mediaId);
+console.log('🔄 marking media upload complete', mediaId);
 
 await apiFetch(`/api/media/complete/${mediaId}`, {
   method: 'POST',
 });
+
 }
 
 if (item.type === 'order_create') {
