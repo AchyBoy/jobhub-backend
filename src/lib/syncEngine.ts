@@ -6,6 +6,7 @@ import { supabase } from './supabase';
 import * as FileSystem from 'expo-file-system/legacy';
 
 
+
 type SyncItem =
   | {
       id: string;
@@ -305,6 +306,7 @@ async function writeQueue(items: SyncItem[]) {
  */
 export async function enqueueSync(item: SyncItem) {
   const q = await readQueue();
+  console.log("SYNC QUEUE:", q);
 
   if (item.type === 'media_upload') {
     q.push(item); // never coalesce media
@@ -626,26 +628,35 @@ if (item.type === 'media_upload') {
 
   
 
-const file = await FileSystem.readAsStringAsync(localUri, {
-  encoding: 'base64',
-});
+// read file directly as binary
+const fileResponse = await fetch(localUri);
 
-console.log('📦 file read length', file.length);
+if (!fileResponse.ok) {
+  throw new Error(`Failed to read local media file: ${localUri}`);
+}
 
-const bytes = Uint8Array.from(atob(file), c => c.charCodeAt(0)).buffer;
+const arrayBuffer = await fileResponse.arrayBuffer();
 
-console.log('☁️ uploading to supabase', storagePath);
-
+// upload to supabase
 const uploadRes = await supabase.storage
   .from('job-media')
-  .upload(storagePath, bytes, {
+  .upload(storagePath, arrayBuffer, {
     contentType: mimeType,
     upsert: false,
   });
 
 if (uploadRes.error) {
-  console.log('❌ upload error', uploadRes.error);
-  throw uploadRes.error;
+
+  // If file already exists, treat as success
+  if (
+    uploadRes.error.message?.includes('resource already exists')
+  ) {
+    console.log('⚠️ file already uploaded earlier, continuing', mediaId);
+  } else {
+    console.log('❌ upload error', uploadRes.error);
+    throw uploadRes.error;
+  }
+
 }
 
 console.log('✅ upload complete, notifying backend', mediaId);

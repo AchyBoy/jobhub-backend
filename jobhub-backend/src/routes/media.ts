@@ -141,7 +141,12 @@ if (newTotal > Number(tenant.media_bytes_limit)) {
 const id = randomUUID();
 
 // extract extension from original filename
-const ext = fileName?.split('.').pop()?.toLowerCase() || 'bin';
+// derive extension from mimeType instead of filename
+let ext = 'bin';
+
+if (mimeType?.startsWith('video')) ext = 'mp4';
+else if (mimeType?.includes('jpeg')) ext = 'jpg';
+else if (mimeType?.includes('png')) ext = 'png';
 
 const storagePath = `${tenantId}/${jobId}/${id}.${ext}`;
 

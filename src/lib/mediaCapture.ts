@@ -2,6 +2,7 @@
 import * as ImagePicker from 'expo-image-picker';
 import { enqueueSync, makeId, nowIso } from './syncEngine';
 import { apiFetch } from './apiClient';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export async function capturePhoto(jobId: string) {
   console.log('📸 capturePhoto start', { jobId });
@@ -72,23 +73,32 @@ export async function importFromLibrary(jobId: string) {
   return await queueMedia(jobId, asset.uri, mimeType);
 }
 
+
+
 async function queueMedia(
   jobId: string,
   uri: string,
   mimeType: string
 ) {
 
-  const sizeBytes = 0; // optional later
+  const info = await FileSystem.getInfoAsync(uri);
 
-  const create = await apiFetch('/api/media/create', {
-    method: 'POST',
-    body: JSON.stringify({
-      jobId,
-      fileName: uri.split('/').pop(),
-      mimeType,
-      sizeBytes,
-    }),
-  });
+  const sizeBytes = info.exists && info.size
+    ? info.size
+    : 0;
+
+const ext = mimeType.startsWith('video') ? 'mp4' : 'jpg';
+const fileName = `${makeId()}.${ext}`;
+
+const create = await apiFetch('/api/media/create', {
+  method: 'POST',
+  body: JSON.stringify({
+    jobId,
+    fileName,
+    mimeType,
+    sizeBytes,
+  }),
+});
 
   const mediaId = create.mediaId;
   const storagePath = create.storagePath;
@@ -104,7 +114,7 @@ async function queueMedia(
       storagePath,
       localUri: uri,
       mimeType,
-      fileName: uri.split('/').pop() || 'media',
+      fileName: `${mediaId}.${mimeType.startsWith('video') ? 'mp4' : 'jpg'}`,
       sizeBytes,
     },
   });

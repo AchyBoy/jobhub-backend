@@ -21,6 +21,7 @@ import { Stack } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { apiFetch } from '../../../src/lib/apiClient';
+import * as FileSystem from 'expo-file-system';
 
 
 type MediaItem = {
@@ -74,7 +75,14 @@ onPress: async () => {
 
     console.log('📸 capturePhoto result', temp);
 
-    if (temp) insertOptimistic(temp);
+    if (temp) {
+  insertOptimistic(temp);
+
+  // refresh gallery after upload likely finishes
+  setTimeout(() => {
+    loadMedia(true);
+  }, 2500);
+}
 
   } catch (err) {
 
@@ -96,7 +104,14 @@ onPress: async () => {
 
     console.log('🎥 recordVideo result', temp);
 
-    if (temp) insertOptimistic(temp);
+    if (temp) {
+  insertOptimistic(temp);
+
+  // refresh gallery after upload likely finishes
+  setTimeout(() => {
+    loadMedia(true);
+  }, 2500);
+}
 
   } catch (err) {
 
@@ -118,7 +133,14 @@ onPress: async () => {
 
     console.log('🖼 importFromLibrary result', temp);
 
-    if (temp) insertOptimistic(temp);
+    if (temp) {
+  insertOptimistic(temp);
+
+  // refresh gallery after upload likely finishes
+  setTimeout(() => {
+    loadMedia(true);
+  }, 2500);
+}
 
   } catch (err) {
 
@@ -164,10 +186,23 @@ async function deleteMedia(item: MediaItem) {
 
           try {
 
+            // delete from backend
             await apiFetch(`/api/media/${item.id}`, {
               method: 'DELETE',
             });
 
+            // delete cached file if it exists
+            if (item.localUri) {
+              try {
+                await FileSystem.deleteAsync(item.localUri, {
+                  idempotent: true,
+                });
+              } catch (e) {
+                console.log('CACHE DELETE ERROR', e);
+              }
+            }
+
+            // remove from UI
             setMedia(prev =>
               prev.filter(m => m.id !== item.id)
             );
@@ -238,6 +273,18 @@ console.log('🖼 renderItem', {
   localUri: item.localUri,
   uploadStatus: item.uploadStatus
 });
+
+const isVideo =
+  item.mimeType?.startsWith('video') ||
+  item.storagePath?.includes('.upload');
+
+console.log('🎬 media type check', {
+  id: item.id,
+  mimeType: item.mimeType,
+  storagePath: item.storagePath,
+  isVideo
+});
+
   return (
     <Pressable
   style={styles.cell}
@@ -246,11 +293,12 @@ console.log('🖼 renderItem', {
 
 {item.localUri ? (
 
-  item.mimeType?.startsWith('video') ? (
+  isVideo ? (
     <Pressable onPress={() => setViewer(item)}>
-      <View style={styles.videoTile}>
-        <Text style={styles.playIcon}>▶</Text>
-      </View>
+<View style={styles.videoTile}>
+  <Text style={styles.videoLabel}>VIDEO</Text>
+  <Text style={styles.playIcon}>▶</Text>
+</View>
     </Pressable>
   ) : (
     <Image
@@ -260,13 +308,15 @@ console.log('🖼 renderItem', {
     />
   )
 
-) : item.signedUrl ? (
+) : item.signedUrl !== undefined && item.signedUrl !== null ? (
 
-  item.mimeType?.startsWith('video') ? (
+  isVideo ? (
+    
     <Pressable onPress={() => setViewer(item)}>
-      <View style={styles.videoTile}>
-        <Text style={styles.playIcon}>▶</Text>
-      </View>
+<View style={styles.videoTile}>
+  <Text style={styles.videoLabel}>VIDEO</Text>
+  <Text style={styles.playIcon}>▶</Text>
+</View>
     </Pressable>
   ) : (
     <Image
@@ -279,7 +329,7 @@ console.log('🖼 renderItem', {
 ) : (
         <View style={styles.placeholder}>
           <Text style={styles.placeholderText}>
-            {item.mimeType?.startsWith('video') ? 'VIDEO' : 'PHOTO'}
+            {(item.mimeType?.startsWith('video') || item.storagePath?.includes('.upload')) ? 'VIDEO' : 'PHOTO'}
           </Text>
         </View>
       )}
@@ -337,6 +387,8 @@ console.log('🖼 renderItem', {
     >
       <Text style={{ color: '#fff', fontSize: 20 }}>✕</Text>
     </Pressable>
+
+    
 
 <Video
   source={{
@@ -445,6 +497,14 @@ viewerClose: {
   top: 50,
   right: 20,
   zIndex: 10,
+},
+videoLabel: {
+  position: 'absolute',
+  top: 6,
+  left: 6,
+  color: '#fff',
+  fontSize: 10,
+  fontWeight: '700'
 },
 
   pendingText: {
