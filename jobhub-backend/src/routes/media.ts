@@ -251,7 +251,7 @@ router.delete("/:id", async (req: any, res) => {
     // get storage path first
     const mediaRes = await pool.query(
       `
-      SELECT storage_path
+      SELECT storage_path, size_bytes
       FROM job_media
       WHERE id = $1
       AND tenant_id = $2
@@ -274,6 +274,18 @@ router.delete("/:id", async (req: any, res) => {
       }
 
     }
+
+    // decrement tenant storage usage
+if (media?.size_bytes) {
+  await pool.query(
+    `
+    UPDATE tenants
+    SET media_bytes_used = GREATEST(media_bytes_used - $1, 0)
+    WHERE id = $2
+    `,
+    [media.size_bytes, tenantId]
+  );
+}
 
     // delete database row
     await pool.query(
