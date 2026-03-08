@@ -346,4 +346,35 @@ router.get("/storage", async (req: any, res) => {
   }
 });
 
+/*
+Reconcile tenant storage usage (admin repair tool)
+*/
+router.post("/admin/reconcile-storage", async (req: any, res) => {
+
+  try {
+
+    const result = await pool.query(`
+      UPDATE tenants t
+      SET media_bytes_used = (
+        SELECT COALESCE(SUM(size_bytes),0)
+        FROM job_media
+        WHERE tenant_id = t.id
+      )
+      RETURNING id, media_bytes_used
+    `);
+
+    res.json({
+      success: true,
+      tenantsUpdated: result.rowCount
+    });
+
+  } catch (err) {
+
+    console.error("❌ reconcile storage failed", err);
+    res.status(500).json({ error: "reconcile failed" });
+
+  }
+
+});
+
 export default router;
