@@ -36,6 +36,6 @@ export function startStorageReconcileCron() {
   runReconcile();
 
   // then run every minute
-  cron.schedule("* * * * *", runReconcile);
+  cron.schedule("0 3 * * 0", runReconcile);
 
 }
