@@ -195,17 +195,42 @@ router.post("/complete/:id", async (req: any, res) => {
     const { id } = req.params;
 
     // get file size so we can increment tenant usage
-    const mediaRes = await pool.query(
-      `
-      SELECT size_bytes
-      FROM job_media
-      WHERE id = $1
-      AND tenant_id = $2
-      `,
-      [id, tenantId]
-    );
+const mediaRes = await pool.query(
+`
+SELECT storage_path
+FROM job_media
+WHERE id = $1
+AND tenant_id = $2
+`,
+[id, tenantId]
+);
 
-    const media = mediaRes.rows[0];
+const media = mediaRes.rows[0];
+
+let realSize = 0;
+
+if (media?.storage_path) {
+
+  const parts = media.storage_path.split("/");
+  const fileName = parts.pop();
+  const folder = parts.join("/");
+
+  const { data, error } = await supabaseAdmin
+    .storage
+    .from("job-media")
+    .list(folder);
+
+  if (!error && data) {
+
+    const file = data.find((f: any) => f.name === fileName);
+
+    if (file?.metadata?.size) {
+      realSize = Number(file.metadata.size);
+    }
+
+  }
+
+}
 
     // mark upload complete
     await pool.query(
@@ -226,7 +251,7 @@ router.post("/complete/:id", async (req: any, res) => {
         SET media_bytes_used = media_bytes_used + $1
         WHERE id = $2
         `,
-        [media.size_bytes, tenantId]
+        [realSize, tenantId]
       );
     }
 
