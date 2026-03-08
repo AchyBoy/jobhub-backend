@@ -308,4 +308,42 @@ if (media?.size_bytes) {
 
 });
 
+/*
+Get tenant media storage usage
+*/
+router.get("/storage", async (req: any, res) => {
+  try {
+
+    const tenantId = req.user?.tenantId;
+
+    if (!tenantId) {
+      return res.status(401).json({ error: "Missing tenant" });
+    }
+
+    const result = await pool.query(
+      `
+      SELECT media_bytes_used, media_bytes_limit
+      FROM tenants
+      WHERE id = $1
+      `,
+      [tenantId]
+    );
+
+    const tenant = result.rows[0];
+
+    if (!tenant) {
+      return res.status(404).json({ error: "Tenant not found" });
+    }
+
+    res.json({
+      used: Number(tenant.media_bytes_used),
+      limit: Number(tenant.media_bytes_limit)
+    });
+
+  } catch (err) {
+    console.error("❌ media storage fetch error", err);
+    res.status(500).json({ error: "Failed to fetch storage info" });
+  }
+});
+
 export default router;
