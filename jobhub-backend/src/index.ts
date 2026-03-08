@@ -15,7 +15,7 @@ import jobOverlaysRoute from "./routes/jobOverlays";
 import automationsRouter from "./routes/automations"
 import crewRoutes from "./routes/crew";
 import jobRoutes from "./routes/job";
-
+import { startStorageReconcileCron } from "./cron/storageReconcile";
 import templateNotes from "./routes/templateNotes"
 import tenantRoutes from "./routes/tenant";
 import phaseGroupsRouter from './routes/phaseGroups';
@@ -154,4 +154,7 @@ app.listen(port, "0.0.0.0", () => {
 
   // 📣 Start push scheduler
   startPushScheduler();
+
+  // start storage reconcile cron
+  startStorageReconcileCron();
 });

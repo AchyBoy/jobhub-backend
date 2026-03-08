@@ -3,8 +3,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { enqueueSync, makeId, nowIso } from './syncEngine';
 import { apiFetch } from './apiClient';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 
-export async function capturePhoto(jobId: string) {
+export async function capturePhoto(jobId: string, uri?: string) {
+    // called from custom camera screen
+  if (uri) {
+    console.log('📸 capturePhoto from camera screen', uri);
+    return await queueMedia(jobId, uri, 'image/jpeg');
+  }
   console.log('📸 capturePhoto start', { jobId });
 
   const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -81,6 +87,25 @@ async function queueMedia(
   mimeType: string
 ) {
 
+  let thumbUri = uri;
+
+if (!mimeType.startsWith('video')) {
+  try {
+    const thumb = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ resize: { width: 200 } }],
+      { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
+    );
+
+    thumbUri = thumb.uri;
+
+    console.log('🖼 thumbnail generated', thumbUri);
+
+  } catch (err) {
+    console.log('⚠️ thumbnail generation failed', err);
+  }
+}
+
   const info = await FileSystem.getInfoAsync(uri);
 
   const sizeBytes = info.exists && info.size
@@ -130,7 +155,7 @@ return {
   mediaId,
   storagePath,
   mimeType,
-  localUri: uri,
+  localUri: thumbUri,
 };
 
 }

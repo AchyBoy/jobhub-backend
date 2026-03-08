@@ -16,12 +16,14 @@ import {
   importFromLibrary
 } from '../../../src/lib/mediaCapture';
 import { Video } from 'expo-av';
+import { useRouter } from 'expo-router';
 import { Alert } from 'react-native';
 import { Stack } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useLocalSearchParams } from 'expo-router';
 import { apiFetch } from '../../../src/lib/apiClient';
 import * as FileSystem from 'expo-file-system';
+import { useFocusEffect } from 'expo-router';
 
 
 type MediaItem = {
@@ -37,6 +39,7 @@ type MediaItem = {
 
 export default function JobMediaScreen() {
   const { id } = useLocalSearchParams();
+  const router = useRouter();
 const [viewer, setViewer] = useState<MediaItem | null>(null);
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -55,6 +58,36 @@ useEffect(() => {
 
 }, [id]);
 
+useEffect(() => {
+  async function testStorage() {
+
+    try {
+
+      const res = await apiFetch('/api/media/storage');
+
+      console.log('📦 STORAGE API RESULT', res);
+
+    } catch (err) {
+
+      console.log('❌ STORAGE API ERROR', err);
+
+    }
+
+  }
+
+  testStorage();
+
+}, []);
+
+useFocusEffect(
+  useCallback(() => {
+    console.log('📦 media screen focused → refreshing');
+
+    loadMedia(true);
+
+  }, [id])
+);
+
   function openCaptureMenu() {
 
   console.log('📸 openCaptureMenu pressed', { jobId: id });
@@ -63,35 +96,19 @@ useEffect(() => {
     'Add Media',
     '',
     [
-      {
-text: 'Take Photo',
-onPress: async () => {
+{
+  text: 'Take Photo',
+  onPress: () => {
 
-  console.log('📸 Take Photo pressed');
+    console.log('📸 opening continuous camera');
 
-  try {
+    router.push({
+      pathname: '/camera',
+      params: { jobId: id }
+    });
 
-    const temp = await capturePhoto(id as string);
-
-    console.log('📸 capturePhoto result', temp);
-
-    if (temp) {
-  insertOptimistic(temp);
-
-  // refresh gallery after upload likely finishes
-  setTimeout(() => {
-    loadMedia(true);
-  }, 2500);
-}
-
-  } catch (err) {
-
-    console.log('❌ capturePhoto error', err);
-
-  }
-
+  },
 },
-      },
       {
 text: 'Record Video',
 onPress: async () => {
@@ -304,37 +321,26 @@ console.log('🎬 media type check', {
 });
 
   return (
-    <Pressable
+<Pressable
   style={styles.cell}
+  onPress={() => setViewer(item)}
   onLongPress={() => deleteMedia(item)}
+  delayLongPress={350}
 >
 
 {item.localUri ? (
   console.log('🎬 MEDIA BRANCH LOCAL', item.id),
 
-  isVideo ? (
-    <Pressable
-  onPress={() => {
-    console.log('🎬 VIDEO TILE PRESSED', {
-      id: item.id,
-      uri: item.localUri ?? item.signedUrl
-    });
-    setViewer(item);
-  }}
->
-<View style={styles.videoTile}>
-  <Text style={{ color: '#fff', fontSize: 28 }}>▶</Text>
-</View>
-
-    </Pressable>
-  ) : (
-<Pressable onPress={() => setViewer(item)}>
-  <Image
-    source={{ uri: item.localUri }}
-    style={styles.image}
-    resizeMode="cover"
-  />
-</Pressable>
+isVideo ? (
+  <View style={styles.videoTile}>
+    <Text style={{ color: '#fff', fontSize: 28 }}>▶</Text>
+  </View>
+) : (
+<Image
+  source={{ uri: item.localUri }}
+  style={styles.image}
+  resizeMode="cover"
+/>
   )
 
 ) : item.signedUrl ? (
@@ -359,13 +365,11 @@ console.log('🎬 media type check', {
     </Pressable>
   ) : (
   console.log('🎬 MEDIA BRANCH PLACEHOLDER', item.id),
-<Pressable onPress={() => setViewer(item)}>
-  <Image
-    source={{ uri: item.signedUrl }}
-    style={styles.image}
-    resizeMode="cover"
-  />
-</Pressable>
+<Image
+  source={{ uri: item.signedUrl }}
+  style={styles.image}
+  resizeMode="cover"
+/>
   )
 
 ) : (
