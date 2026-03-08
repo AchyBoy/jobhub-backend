@@ -5,7 +5,7 @@ import { pool } from "../db/postgres";
 export function startStorageReconcileCron() {
 
   // Every Sunday at 3:00 AM
-  cron.schedule("0 3 * * 0", async () => {
+  cron.schedule("* * * * *", async () => {
 
     try {
 
