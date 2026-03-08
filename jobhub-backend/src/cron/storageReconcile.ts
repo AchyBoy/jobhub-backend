@@ -4,30 +4,38 @@ import { pool } from "../db/postgres";
 
 export function startStorageReconcileCron() {
 
-  // Every Sunday at 3:00 AM
-  cron.schedule("* * * * *", async () => {
+  async function runReconcile() {
 
     try {
 
-      console.log("🔧 Weekly storage reconciliation starting...");
+      console.log("🔧 Storage reconciliation starting...");
 
-      await pool.query(`
+      const result = await pool.query(`
         UPDATE tenants t
         SET media_bytes_used = (
           SELECT COALESCE(SUM(size_bytes),0)
           FROM job_media
           WHERE tenant_id = t.id
         )
+        RETURNING id
       `);
 
-      console.log("✅ Weekly storage reconciliation complete");
+      console.log("✅ Storage reconciliation complete", {
+        tenantsUpdated: result.rowCount
+      });
 
     } catch (err) {
 
-      console.error("❌ Weekly storage reconciliation failed", err);
+      console.error("❌ Storage reconciliation failed", err);
 
     }
 
-  });
+  }
+
+  // run immediately on server start
+  runReconcile();
+
+  // then run every minute
+  cron.schedule("* * * * *", runReconcile);
 
 }
